@@ -27,9 +27,22 @@ class GurobiMixin:
                     pass
 
         try:
+            is_cloud = bool(
+                os.environ.get('STREAMLIT_SERVER_PORT')
+                or os.path.exists('/mount/src')
+                or os.environ.get('IS_STREAMLIT_CLOUD')
+            )
+            threads = int(config.get('gurobi_threads', 8))
+            if is_cloud:
+                # Streamlit Community Cloud has a hard 3 GB RAM limit.
+                # Dual Simplex (Method=1) and capping threads at 2 avoids the 4-8 GB Barrier Cholesky OOM kill.
+                threads = min(threads, 2)
+                model.Params.Method = 1
+                model.Params.NodefileStart = 0.5
+
             model.Params.TimeLimit = float(config['time_limit_seconds'])
             model.Params.MIPGap = 0.0
-            model.Params.Threads = int(config['gurobi_threads'])
+            model.Params.Threads = threads
             model.Params.Seed = int(config.get('solver_seed', 42))
             model.Params.OutputFlag = 1
 
