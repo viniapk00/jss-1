@@ -26,6 +26,14 @@ from utils.result_saver import (
 )
 from main import _run_mip
 
+# Pass through any Gurobi WLS credentials configured in Streamlit Cloud Secrets
+try:
+    if hasattr(st, 'secrets') and 'gurobi' in st.secrets:
+        for _k, _v in st.secrets['gurobi'].items():
+            os.environ[f'GRB_{_k.upper()}'] = str(_v)
+except Exception:
+    pass
+
 # Page Configuration
 st.set_page_config(
     page_title="FJSS Optimization Suite",
@@ -240,14 +248,11 @@ if app_mode == "🚀 Run Optimization":
         ["heuristic", "mip", "both"],
         index=0,
         format_func=lambda m: {
-            "heuristic": "Heuristics Only (Greedy + Roulette + LNS) [Cloud / Fast]",
-            "mip": "MIP Only (Exact Solver - Gurobi/CPLEX Local)",
-            "both": "Both (Comparative Benchmarking - Local)"
+            "heuristic": "Heuristics Only (Greedy + Roulette + LNS)",
+            "mip": "MIP Only (Exact Solver)",
+            "both": "Both (Comparative Benchmarking)"
         }[m]
     )
-    if exec_mode in ("mip", "both"):
-        st.sidebar.caption("ℹ️ *Catatan: Solver MIP membutuhkan instalasi & lisensi lokal Gurobi/CPLEX.*")
-    
     mip_solver = st.sidebar.selectbox("MIP Engine", ["gurobi", "cplex"], index=0) if exec_mode in ("mip", "both") else "gurobi"
 
     with st.sidebar.expander("🛠️ Hyperparameters & Overrides"):
