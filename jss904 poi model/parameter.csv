@@ -1,0 +1,17 @@
+Parameter,Value
+input_dir,input
+output_dir,output
+lot_file,Lot_info_small.csv
+machine_file,Machine_Info_small.csv
+setup_file,Setup_processing_time_small.csv
+vertical_move_time,60
+horizontal_move_time,60
+start_date,1/1/2026
+iterations,100
+time_limit_seconds,600
+objective_weight_tardy,1
+objective_weight_move,1
+objective_weight_setup,1
+objective_weight_total_time,1
+objective_weight_makespan,0.1
+mip_gap,0.00001

@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large solver model formulation files (>100MB, rejected by GitHub)
+*.lp
+*.mps
+*.sol
+*.ilp
+
+# Large archives, previous codes, presentations
+*.zip
+*.pptx
+prev code/
+
+# Ignore hundreds of old historical test runs in output/all_types_gurobi
+output/all_types_gurobi/*
+!output/all_types_gurobi/large_both_20260909_173534
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

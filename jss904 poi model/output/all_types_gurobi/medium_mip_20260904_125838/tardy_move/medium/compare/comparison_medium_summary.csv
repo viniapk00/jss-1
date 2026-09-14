@@ -1,0 +1,24 @@
+﻿Metric,MIP
+Lots,80
+Products,16
+Setup Time,15:00:00
+Setup Count,30
+Product-Machine Pairs,38
+Moving Time,00:31:00
+Moving Count,1
+Proc Time,712:53:45
+Processing (sec),2566425.00
+Total Time (sec),2622285.00
+Average Flow Time (sec),165478.38
+Makespan,168:00:00
+Schedule Span,160:00:00
+Tardiness,208:34:20
+Tardy Lots,4
+Objective,3753640.0
+Solve Time,7.83s
+Number of Iterations,-
+Best Iteration Found,-
+Number of Updates,-
+Absolute Gap vs Best,0.000000
+RPD vs Best (%),0.0000%
+MIP Gap,0.00%

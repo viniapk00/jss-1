@@ -1,0 +1,24 @@
+﻿Metric,MIP,B.Greedy,G+Roulette,G+LNS
+Lots,125,125,125,125
+Products,23,23,23,23
+Setup Time,27:00:00,01:00:00,01:00:00,01:00:00
+Setup Count,54,2,2,2
+Product-Machine Pairs,116,58,58,58
+Moving Time,02:38:00,02:38:00,02:38:00,02:38:00
+Moving Count,11,11,11,11
+Proc Time,941:23:45,941:23:45,941:23:45,941:23:45
+Processing (sec),3389025.00,3389025.00,3389025.00,3389025.00
+Total Time (sec),3495705.00,3402105.00,3402105.00,3402105.00
+Average Flow Time (sec),183621.36,86303.88,86303.88,86303.88
+Makespan,168:00:00,129:02:00,129:02:00,129:02:00
+Schedule Span,160:00:00,121:02:00,121:02:00,121:02:00
+Tardiness,208:38:20,208:38:20,208:38:20,208:38:20
+Tardy Lots,4,4,4,4
+Objective,3768100.0,3768100.0,3768100.0,3768100.0
+Solve Time,7.42s,0.51s,15.54s,74.22s
+Number of Iterations,-,1,100,100
+Best Iteration Found,-,1,0,0
+Number of Updates,-,0,0,0
+Absolute Gap vs Best,0.000000,0.000000,0.000000,0.000000
+RPD vs Best (%),0.0000%,0.0000%,0.0000%,0.0000%
+MIP Gap,0.00%,-,-,-
