@@ -33,7 +33,7 @@ def _get_python_executable(custom=None, solver='cplex'):
             os.path.expanduser(r"~\anaconda3\python.exe"),
             r"C:\ProgramData\anaconda3\python.exe",
         ]
-    required = 'numpy, pandas, gurobipy' if solver == 'gurobi' else 'numpy, pandas, docplex, cplex'
+    required = 'numpy, pandas, gurobipy, docplex' if solver == 'gurobi' else 'numpy, pandas, docplex, cplex'
     for c in candidates:
         if c and os.path.isfile(c):
             try:

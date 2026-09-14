@@ -45,6 +45,10 @@ class GurobiMixin:
             model.Params.Threads = threads
             model.Params.Seed = int(config.get('solver_seed', 42))
             model.Params.OutputFlag = 1
+            model.Params.MIPFocus = 1
+
+            # Inject warm start from Greedy ATC
+            self._apply_warm_start(model)
 
             t0 = time.monotonic()
             model.optimize()
@@ -89,6 +93,84 @@ class GurobiMixin:
             return True
         finally:
             model.dispose()
+
+    def _apply_warm_start(self, gmodel):
+        """Inject a high-quality initial feasible solution from Greedy ATC into Gurobi as a MIP start."""
+        frame = getattr(self.data, 'greedy_schedule_frame', None)
+        if frame is None:
+            try:
+                from utils.preprocessing import load_objective_class
+                scheduler_cls = load_objective_class(self.objective_type, 'heuristic')
+                scheduler = scheduler_cls(self.data.config, self.data)
+                heuristic_results, greedy_seed, heuristic_metas = scheduler.run_greedy()
+                frame, reported_obj, order, elapsed = greedy_seed
+                self.data.greedy_schedule_frame = frame
+                self.data.greedy_seed = greedy_seed
+                self.data.heuristic_results = heuristic_results
+                self.data.heuristic_metas = heuristic_metas
+            except Exception as exc:
+                print(f"  [Warm Start] Note: Could not generate greedy warm start: {exc}")
+                return
+
+        if frame is None or frame.empty:
+            return
+
+        try:
+            start_map = {}
+            # Route options
+            selected_opts = {row['lot ID']: row['Option'] for _, row in frame.iterrows()}
+            for p in self.data.P:
+                sel_o = selected_opts.get(p)
+                for o in self.data.Op[p]:
+                    start_map[f'w_{p}_{o}'] = 1.0 if o == sel_o else 0.0
+
+            # Operations and machine assignments
+            m_jobs = {m: [] for m in self.data.M}
+            for _, row in frame.iterrows():
+                p = row['lot ID']
+                o = row['Option']
+                i = row['Operation Sequence']
+                m = row['Machine ID']
+                st = float(row['Start Time (sec)'])
+                mtag = str(m).replace('-', '_')
+                start_map[f'x_{p}_{o}_{i}_{mtag}'] = 1.0
+                start_map[f't_{p}_{o}_{i}'] = st
+                m_jobs[m].append((st, (p, o, i), mtag))
+
+            # Machine sequencing
+            for m, jobs in m_jobs.items():
+                if not jobs:
+                    continue
+                jobs.sort(key=lambda x: x[0])
+                # Immediate depot arcs
+                first_p, first_o, first_i = jobs[0][1]
+                start_map[f'd_plus_{first_p}_{first_o}_{first_i}_{jobs[0][2]}'] = 1.0
+                last_p, last_o, last_i = jobs[-1][1]
+                start_map[f'd_minus_{last_p}_{last_o}_{last_i}_{jobs[-1][2]}'] = 1.0
+
+                # Immediate y arcs
+                for idx in range(len(jobs) - 1):
+                    (p1, o1, i1), mtag1 = jobs[idx][1], jobs[idx][2]
+                    (p2, o2, i2) = jobs[idx + 1][1]
+                    start_map[f'y_{p1}_{o1}_{i1}_{p2}_{o2}_{i2}_{mtag1}'] = 1.0
+
+                # Pairwise y arcs
+                for u in range(len(jobs)):
+                    for v in range(u + 1, len(jobs)):
+                        (p1, o1, i1), mtag1 = jobs[u][1], jobs[u][2]
+                        (p2, o2, i2) = jobs[v][1]
+                        start_map[f'y_{p1}_{o1}_{i1}_{p2}_{o2}_{i2}_{mtag1}'] = 1.0
+                        start_map[f'y_{p2}_{o2}_{i2}_{p1}_{o1}_{i1}_{mtag1}'] = 0.0
+
+            matched = 0
+            for v in gmodel.getVars():
+                if v.VarName in start_map:
+                    v.Start = start_map[v.VarName]
+                    matched += 1
+            if matched > 0:
+                print(f"  MIP warm start injected ({matched} variables initialized from Greedy ATC).")
+        except Exception as exc:
+            print(f"  [Warm Start] Note: Failed to inject warm start into Gurobi: {exc}")
 
 
 def model_for(mip_model_class):
