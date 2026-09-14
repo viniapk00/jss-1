@@ -8,6 +8,8 @@ __pycache__/
 *.mps
 *.sol
 *.ilp
+*.lic
+gurobi.lic
 
 # Large archives, previous codes, presentations
 *.zip

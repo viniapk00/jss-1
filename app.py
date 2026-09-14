@@ -45,6 +45,21 @@ os.environ.setdefault('GRB_WLSACCESSID', 'a2e9e405-671a-496c-898e-e927add4a289')
 os.environ.setdefault('GRB_WLSSECRET', '54c6c2e9-20a7-47b8-8bc3-33888589965a')
 os.environ.setdefault('GRB_LICENSEID', '2848387')
 
+# Write gurobi.lic to disk locations where Gurobi native library looks for it
+_lic_content = (
+    "# Gurobi WLS Academic License\n"
+    f"WLSACCESSID={os.environ.get('GRB_WLSACCESSID', 'a2e9e405-671a-496c-898e-e927add4a289')}\n"
+    f"WLSSECRET={os.environ.get('GRB_WLSSECRET', '54c6c2e9-20a7-47b8-8bc3-33888589965a')}\n"
+    f"LICENSEID={os.environ.get('GRB_LICENSEID', '2848387')}\n"
+)
+for _ldir in [PROJECT_ROOT, Path.home(), Path.cwd()]:
+    try:
+        _lf = _ldir / 'gurobi.lic'
+        if not _lf.exists():
+            _lf.write_text(_lic_content, encoding='utf-8')
+    except Exception:
+        pass
+
 # Page Configuration
 st.set_page_config(
     page_title="FJSS Optimization Suite",
@@ -345,14 +360,36 @@ if app_mode == "🚀 Run Optimization" and btn_run:
             else:
                 st.write(f"Solving with MIP ({mip_solver.upper()})...")
                 mip_start = time.perf_counter()
-                mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
-                if mip_res:
-                    frame, mip_obj, elapsed, mip_gap = mip_res
-                    results['mip'] = (frame, mip_obj, elapsed)
-                    st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
-                else:
-                    st.warning(f"⚠️ {mip_solver.upper()} solver tidak menghasilkan solusi di cloud. Melanjutkan otomatis dengan optimasi Heuristik...")
+
+                # Diagnostic check for required dependencies
+                err_detail = None
+                try:
+                    import docplex
+                except ImportError as e:
+                    err_detail = f"Package `docplex` belum terpasang ({e})"
+                if not err_detail and mip_solver == 'gurobi':
+                    try:
+                        import gurobipy
+                    except ImportError as e:
+                        err_detail = f"Package `gurobipy` belum terpasang ({e})"
+
+                if err_detail:
+                    st.warning(f"⚠️ {mip_solver.upper()} solver belum siap: {err_detail}. Silakan klik menu **Manage app** → **Reboot** di pojok kanan bawah Streamlit Cloud agar dependensi baru dari requirements.txt ter-install. Melanjutkan otomatis dengan optimasi Heuristik...")
                     effective_heuristic = True
+                else:
+                    mip_res = None
+                    try:
+                        mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
+                    except Exception as e:
+                        st.warning(f"⚠️ {mip_solver.upper()} error: {e}")
+
+                    if mip_res:
+                        frame, mip_obj, elapsed, mip_gap = mip_res
+                        results['mip'] = (frame, mip_obj, elapsed)
+                        st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
+                    else:
+                        st.warning(f"⚠️ {mip_solver.upper()} solver tidak menghasilkan solusi di cloud. Melanjutkan otomatis dengan optimasi Heuristik...")
+                        effective_heuristic = True
 
         # Heuristic Phase
         if effective_heuristic:
