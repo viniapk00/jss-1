@@ -26,7 +26,7 @@ from utils.result_saver import (
 )
 from main import _run_mip
 
-# Pass through any Gurobi WLS credentials configured in Streamlit Cloud Secrets
+# Pass through any Gurobi WLS credentials configured in Streamlit Cloud Secrets or default to user's WLS Academic License
 try:
     if hasattr(st, 'secrets'):
         if 'gurobi' in st.secrets:
@@ -39,6 +39,11 @@ try:
                 os.environ[f'GRB_{_k.upper()}'] = str(st.secrets[_k.lower()])
 except Exception:
     pass
+
+# Ensure Gurobi WLS Academic License is active (registered to vinia@postech.ac.kr)
+os.environ.setdefault('GRB_WLSACCESSID', 'a2e9e405-671a-496c-898e-e927add4a289')
+os.environ.setdefault('GRB_WLSSECRET', '54c6c2e9-20a7-47b8-8bc3-33888589965a')
+os.environ.setdefault('GRB_LICENSEID', '2848387')
 
 # Page Configuration
 st.set_page_config(
