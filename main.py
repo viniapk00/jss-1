@@ -165,19 +165,13 @@ def _execute(args) -> int:
         print(f"\n{'=' * 60}\n  HEURISTIC SCHEDULING\n{'=' * 60}")
         scheduler = load_objective_class(objective_key, 'heuristic')(config, data)
 
-        # Best Greedy (reuse if cached from MIP warm start)
-        if hasattr(data, 'greedy_seed') and data.greedy_seed is not None:
-            heuristic_results = getattr(data, 'heuristic_results', {})
-            greedy_seed = data.greedy_seed
-            heuristic_metas = getattr(data, 'heuristic_metas', {})
-            frame, reported_obj, order, elapsed = greedy_seed
-        else:
-            heuristic_results, greedy_seed, heuristic_metas = scheduler.run_greedy()
-            frame, reported_obj, order, elapsed = greedy_seed
-            assert_schedule_feasible(frame, data)
-            metrics = schedule_metrics(frame, data)
-            greedy_seed = (frame, float(metrics['objective']), order, elapsed)
-            heuristic_results['best_greedy'] = (frame, float(metrics['objective']), elapsed)
+        # Best Greedy
+        heuristic_results, greedy_seed, heuristic_metas = scheduler.run_greedy()
+        frame, reported_obj, order, elapsed = greedy_seed
+        assert_schedule_feasible(frame, data)
+        metrics = schedule_metrics(frame, data)
+        greedy_seed = (frame, float(metrics['objective']), order, elapsed)
+        heuristic_results['best_greedy'] = (frame, float(metrics['objective']), elapsed)
 
         # Roulette Wheel
         roulette_frame, roulette_obj, _, roulette_elapsed, roulette_meta = scheduler.run_roulette(greedy_seed)
