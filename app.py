@@ -82,6 +82,30 @@ st.markdown("""
         color: #64748B;
         margin-bottom: 1.5rem;
     }
+    .edition-badge-local {
+        display: inline-block;
+        background: #EFF6FF;
+        color: #1D4ED8;
+        border: 1px solid #BFDBFE;
+        border-radius: 9999px;
+        padding: 4px 14px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        vertical-align: middle;
+        margin-left: 10px;
+    }
+    .edition-badge-public {
+        display: inline-block;
+        background: #F0FDF4;
+        color: #15803D;
+        border: 1px solid #BBF7D0;
+        border-radius: 9999px;
+        padding: 4px 14px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        vertical-align: middle;
+        margin-left: 10px;
+    }
     .kpi-card {
         background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%);
         border: 1px solid #E2E8F0;
@@ -181,7 +205,7 @@ def render_comparison_charts(summary_df: pd.DataFrame):
             yaxis_title="Objective Score",
             template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40)
         )
-        c1.plotly_chart(fig_obj, use_container_width=True)
+        c1.plotly_chart(fig_obj, width='stretch')
 
     # Chart 2: Makespan & Total Time
     if 'Makespan' in m_idx.index:
@@ -204,7 +228,7 @@ def render_comparison_charts(summary_df: pd.DataFrame):
             yaxis_title="Makespan (Hours)",
             template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40)
         )
-        c2.plotly_chart(fig_ms, use_container_width=True)
+        c2.plotly_chart(fig_ms, width='stretch')
 
 
 def dynamic_gantt(df: pd.DataFrame, title: str):
@@ -251,13 +275,30 @@ def dynamic_gantt(df: pd.DataFrame, title: str):
         template="plotly_white", margin=dict(l=120, r=20, t=60, b=40)
     )
     fig.update_xaxes(rangeslider=dict(visible=True))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
 
 # ==========================================
-# SIDEBAR
+# SIDEBAR & EDITION CONTROL
 # ==========================================
 st.sidebar.markdown("## ⚙️ Optimization Control")
+
+ENV_OVERRIDE = os.environ.get('APP_EDITION', '').strip().lower()
+IS_DETECTED_CLOUD = bool(
+    os.environ.get('STREAMLIT_SERVER_PORT')
+    or os.path.exists('/mount/src')
+    or os.environ.get('IS_STREAMLIT_CLOUD')
+)
+default_edition_idx = 1 if (ENV_OVERRIDE == 'public' or (not ENV_OVERRIDE and IS_DETECTED_CLOUD)) else 0
+
+selected_edition = st.sidebar.radio(
+    "🖥️ Deployment Edition",
+    ["💻 Localhost Workstation", "🌐 Public Cloud Demo"],
+    index=default_edition_idx,
+    help="Localhost: Full multi-core exact MIP (Gurobi/CPLEX) with no time/RAM limits.\nPublic: Fast heuristics & memory-safe benchmark exploration for Streamlit Cloud."
+)
+is_public = "Public" in selected_edition
+
 app_mode = st.sidebar.radio("Navigation Mode", ["🚀 Run Optimization", "📂 Explore Saved Runs"])
 
 if app_mode == "🚀 Run Optimization":
@@ -269,26 +310,38 @@ if app_mode == "🚀 Run Optimization":
     obj_choices = get_available_objectives()
     sel_obj = st.sidebar.selectbox("Objective Model", list(obj_choices.keys()), format_func=lambda k: f"{k} ({obj_choices[k]})")
 
+    # In Public mode for medium/large, default to Heuristics to guarantee 1-5s response and 0% risk of OOM
+    if is_public and dataset_name in ('medium', 'large'):
+        default_mode_idx = 0
+    elif is_public:
+        default_mode_idx = 2  # Small dataset can solve both live in 0.15s
+    else:
+        default_mode_idx = 2  # Localhost defaults to Both (benchmarking)
+
     exec_mode = st.sidebar.selectbox(
         "Solver Mode",
         ["heuristic", "mip", "both"],
-        index=0,
+        index=default_mode_idx,
         format_func=lambda m: {
             "heuristic": "Heuristics Only (Greedy + Roulette + LNS)",
             "mip": "MIP Only (Exact Solver)",
             "both": "Both (Comparative Benchmarking)"
         }[m]
     )
-    mip_solver = st.sidebar.selectbox("MIP Engine", ["gurobi", "cplex"], index=0) if exec_mode in ("mip", "both") else "gurobi"
+
+    engine_choices = ["gurobi", "cplex"] if not is_public else ["gurobi"]
+    mip_solver = st.sidebar.selectbox("MIP Engine", engine_choices, index=0) if exec_mode in ("mip", "both") else "gurobi"
 
     with st.sidebar.expander("🛠️ Hyperparameters & Overrides"):
         p_seed = st.number_input("Random Seed", value=42, step=1)
         p_iters = st.number_input("Heuristic Iterations", value=100, step=10, min_value=1)
-        p_time_limit = st.number_input("MIP Time Limit (sec)", value=600.0, step=60.0, min_value=5.0)
+        default_tl = 60.0 if is_public else 600.0
+        p_time_limit = st.number_input("MIP Time Limit (sec)", value=default_tl, step=60.0, min_value=5.0)
         p_route_limit = st.number_input("Greedy Route Limit", value=5, step=1, min_value=1)
-        p_threads = st.number_input("CPU Threads (0=Auto)", value=0, step=1, min_value=0)
+        default_th = 2 if is_public else 0
+        p_threads = st.number_input("CPU Threads (0=Auto)", value=default_th, step=1, min_value=0)
 
-    btn_run = st.sidebar.button("▶️ Start Scheduling", type="primary", use_container_width=True)
+    btn_run = st.sidebar.button("▶️ Start Scheduling", type="primary", width="stretch")
 
 else:
     btn_run = False
@@ -302,10 +355,27 @@ else:
 
 
 # ==========================================
-# MAIN PAGE HEADER
+# MAIN PAGE HEADER & EDITION BADGE
 # ==========================================
-st.markdown("<div class='main-header'>Flexible Job Shop Scheduling (FJSS) Optimization</div>", unsafe_allow_html=True)
+badge_html = '<span class="edition-badge-public">🌐 Public Cloud Edition (Fast Heuristics & Benchmarks)</span>' if is_public else '<span class="edition-badge-local">💻 Localhost Edition (Full Workstation Multi-core & Exact MIP)</span>'
+st.markdown(f"<div class='main-header'>Flexible Job Shop Scheduling (FJSS) Optimization {badge_html}</div>", unsafe_allow_html=True)
 st.markdown("<div class='sub-header'>State-of-the-Art Exact Mathematical Programming (MIP) & Targeted Heuristics (Greedy, Roulette, LNS)</div>", unsafe_allow_html=True)
+
+if is_public:
+    st.info("🌐 **Public Cloud Demo Mode**: Deployed on Streamlit Community Cloud (3 GB RAM). Targeted Heuristics (Greedy, Roulette, LNS) execute live in ~2–5 seconds. Verified exact MIP benchmark results (with exact MIP Gap %) are precomputed and viewable instantly under **📂 Explore Saved Runs**.")
+else:
+    with st.expander("💻 **Localhost Workstation Info & Command Line Shortcuts**", expanded=False):
+        st.markdown("""
+**Local Computational Power**:
+- Multi-threaded Gurobi 13 / CPLEX solvers with full hardware utilization.
+- Exact solving for Large dataset (350 lots) with complete 600s+ search depth.
+
+**Headless CLI Shortcut (run in terminal)**:
+```powershell
+# Run full comparative benchmark on Large dataset (all 5 objectives)
+python run_all_types_gurobi.py --dataset 3 --mode both
+```
+""")
 
 
 # ==========================================
@@ -487,7 +557,7 @@ with tab_summary:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 📋 Comparative Performance Matrix")
-        st.dataframe(summary_df.set_index('Metric'), use_container_width=True)
+        st.dataframe(summary_df.set_index('Metric'), width='stretch')
 
         st.markdown("<br>", unsafe_allow_html=True)
         render_comparison_charts(summary_df)
@@ -569,7 +639,7 @@ with tab_details:
             if m_col and sel_f_mach != "All": df_filtered = df_filtered[df_filtered[m_col].astype(str) == sel_f_mach]
             if sel_f_prod != "All": df_filtered = df_filtered[df_filtered['Product ID'].astype(str) == sel_f_prod]
 
-            st.dataframe(df_filtered, use_container_width=True, height=350)
+            st.dataframe(df_filtered, width='stretch', height=350)
             st.download_button("📥 Download Filtered Schedule (CSV)", df_filtered.to_csv(index=False), f"schedule_{det_method}_{active_dir_name}.csv", "text/csv")
 
             # Machine Workload Histogram
@@ -583,7 +653,7 @@ with tab_details:
                     title="<b>Machine Load Profile</b>", template="plotly_white"
                 )
                 fig_load.update_layout(height=350, margin=dict(l=40, r=20, t=50, b=40))
-                st.plotly_chart(fig_load, use_container_width=True)
+                st.plotly_chart(fig_load, width='stretch')
         else:
             st.info(f"No schedule CSV found in `{det_dir}`.")
 
