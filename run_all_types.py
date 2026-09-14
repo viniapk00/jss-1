@@ -18,12 +18,21 @@ OBJECTIVE_TYPES = (
 def _get_python_executable(custom=None, solver='cplex'):
     if custom and os.path.isfile(custom):
         return custom
-    candidates = [
-        r"C:\Users\hkuser\anaconda3\python.exe",
-        os.path.expanduser(r"~\anaconda3\python.exe"),
-        sys.executable,
-        r"C:\ProgramData\anaconda3\python.exe",
-    ]
+    if solver == 'gurobi':
+        candidates = [
+            r"C:\Users\hkuser\AppData\Local\Programs\Python\Python312\python.exe",
+            sys.executable,
+            r"C:\Users\hkuser\anaconda3\python.exe",
+            os.path.expanduser(r"~\anaconda3\python.exe"),
+            r"C:\ProgramData\anaconda3\python.exe",
+        ]
+    else:
+        candidates = [
+            sys.executable,
+            r"C:\Users\hkuser\anaconda3\python.exe",
+            os.path.expanduser(r"~\anaconda3\python.exe"),
+            r"C:\ProgramData\anaconda3\python.exe",
+        ]
     required = 'numpy, pandas, gurobipy' if solver == 'gurobi' else 'numpy, pandas, docplex, cplex'
     for c in candidates:
         if c and os.path.isfile(c):

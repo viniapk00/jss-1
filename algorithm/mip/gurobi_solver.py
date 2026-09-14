@@ -17,13 +17,18 @@ class GurobiMixin:
 
         print("\n" + "=" * 50 + "\nSOLVING - MIP (GUROBI)\n" + "=" * 50)
         self.model.export_as_lp(lp_path)
-        model = gp.read(lp_path)
+        try:
+            model = gp.read(lp_path)
+        finally:
+            if os.path.exists(lp_path):
+                try:
+                    os.remove(lp_path)
+                except Exception:
+                    pass
 
         try:
             model.Params.TimeLimit = float(config['time_limit_seconds'])
             model.Params.MIPGap = 0.0
-            model.Params.IntFeasTol = 1e-9
-            model.Params.FeasibilityTol = 1e-9
             model.Params.Threads = int(config['gurobi_threads'])
             model.Params.Seed = int(config.get('solver_seed', 42))
             model.Params.OutputFlag = 1
