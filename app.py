@@ -279,7 +279,7 @@ else:
 # MAIN PAGE HEADER
 # ==========================================
 st.markdown("<div class='main-header'>Flexible Job Shop Scheduling (FJSS) Optimization</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-header'>State-of-the-Art Exact Mathematical Programming (MIP) & Targeted Metaheuristics (Greedy, Roulette, LNS)</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-header'>State-of-the-Art Exact Mathematical Programming (MIP) & Targeted Heuristics (Greedy, Roulette, LNS)</div>", unsafe_allow_html=True)
 
 
 # ==========================================
@@ -316,26 +316,36 @@ if app_mode == "🚀 Run Optimization" and btn_run:
         results, metas, metrics_cache, mip_gap = {}, {}, {}, None
 
         # MIP Phase
+        effective_heuristic = exec_mode in ('heuristic', 'both')
         if exec_mode in ('mip', 'both'):
-            st.write(f"Solving with MIP ({mip_solver.upper()})...")
-            mip_start = time.perf_counter()
-            mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
-            if mip_res:
-                frame, mip_obj, elapsed, mip_gap = mip_res
-                results['mip'] = (frame, mip_obj, elapsed)
-                st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
+            # Check if full Gurobi license is available
+            has_full_license = bool(
+                os.environ.get('GRB_WLSACCESSID')
+                or os.environ.get('GRB_LICENSEID')
+                or os.path.exists(os.path.expanduser('~/gurobi.lic'))
+                or os.path.exists('C:/Users/hkuser/gurobi.lic')
+                or (hasattr(st, 'secrets') and 'gurobi' in st.secrets)
+            )
+
+            # Medium (12,617 vars) and Large (345,082 vars) exceed free community size limit (2,000 vars)
+            if dataset_name in ('medium', 'large') and not has_full_license:
+                st.info(f"ℹ️ Dataset **{dataset_name.capitalize()}** (>2.000 variabel MIP) membutuhkan lisensi penuh Gurobi. Di Streamlit Cloud, optimasi dialihkan otomatis ke **Heuristics (Greedy, Roulette, LNS)**.")
+                effective_heuristic = True
             else:
-                if exec_mode == 'mip':
-                    st.error(f"❌ **MIP Solver ({mip_solver.upper()}) Tidak Tersedia di Cloud**\n\nServer Streamlit Cloud gratis tidak memiliki lisensi/binary solver komersial Gurobi atau CPLEX.")
-                    st.info("💡 **Solusi**: Di sidebar sebelah kiri, ubah pilihan **Solver Mode** menjadi **`Heuristics Only (Greedy + Roulette + LNS)`**, lalu klik kembali tombol **▶️ Start Scheduling**.\n\n*(Atau jika ingin melihat grafik perbandingan MIP vs Heuristik yang sudah dihitung sebelumnya, pilih menu **📂 Explore Saved Runs** di sidebar)*.")
-                    status.update(label="MIP Solver Unavailable", state="error")
-                    st.stop()
+                st.write(f"Solving with MIP ({mip_solver.upper()})...")
+                mip_start = time.perf_counter()
+                mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
+                if mip_res:
+                    frame, mip_obj, elapsed, mip_gap = mip_res
+                    results['mip'] = (frame, mip_obj, elapsed)
+                    st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
                 else:
-                    st.warning(f"⚠️ {mip_solver.upper()} solver tidak tersedia di cloud. Melanjutkan dengan optimasi Heuristik...")
+                    st.warning(f"⚠️ {mip_solver.upper()} solver tidak menghasilkan solusi di cloud. Melanjutkan otomatis dengan optimasi Heuristik...")
+                    effective_heuristic = True
 
         # Heuristic Phase
-        if exec_mode in ('heuristic', 'both'):
-            st.write("Executing Deterministic Greedy Portfolio (16 dispatching strategies)...")
+        if effective_heuristic:
+            st.write("Executing Deterministic Greedy Portfolio (6 dispatching strategies)...")
             scheduler = load_objective_class(sel_obj, 'heuristic')(config, data)
             heuristic_results, greedy_seed, heuristic_metas = scheduler.run_greedy()
             frame, reported_obj, order, elapsed = greedy_seed
