@@ -36,6 +36,37 @@ def load_objective_class(key, kind):
     return getattr(import_module(mod), cls)
 
 
+def find_case_insensitive_path(target_path: str) -> str:
+    """Resolve a file or directory path case-insensitively across platforms (especially Linux)."""
+    if not target_path or os.path.exists(target_path):
+        return target_path
+
+    drive, rest = os.path.splitdrive(os.path.normpath(target_path))
+    parts = [p for p in rest.split(os.sep) if p]
+    current = (drive + os.sep) if drive else (os.sep if os.path.isabs(target_path) else '.')
+
+    for part in parts:
+        direct = os.path.join(current, part)
+        if os.path.exists(direct):
+            current = direct
+            continue
+        matched = False
+        try:
+            if os.path.isdir(current):
+                pl = part.lower()
+                for entry in os.listdir(current):
+                    if entry.lower() == pl:
+                        current = os.path.join(current, entry)
+                        matched = True
+                        break
+        except OSError:
+            pass
+        if not matched:
+            current = os.path.join(current, part)
+
+    return current
+
+
 def objective_evaluator(config):
     """Construct composite objective evaluator matching objective type and weights."""
     obj_type = str(config.get('objective_type', '')).strip()
@@ -257,10 +288,11 @@ class DataPreprocessor:
         if choice not in self.DATASET_CHOICES:
             raise ValueError(f'Invalid dataset choice: {choice!r}')
         self.dataset_size, folder = self.DATASET_CHOICES[choice]
-        self.dataset_path = os.path.join(self.input_dir, folder)
-        legacy = f'{self.dataset_path}_dataset'
-        if not os.path.isdir(self.dataset_path) and os.path.isdir(legacy):
-            self.dataset_path = legacy
+        self.dataset_path = find_case_insensitive_path(os.path.join(self.input_dir, folder))
+        if not os.path.isdir(self.dataset_path):
+            legacy = find_case_insensitive_path(f'{os.path.join(self.input_dir, folder)}_dataset')
+            if os.path.isdir(legacy):
+                self.dataset_path = legacy
         os.makedirs(self.output_dir, exist_ok=True)
         print(f'  Dataset: {self.dataset_size.upper()}')
         if not os.path.exists(self.dataset_path):
@@ -271,23 +303,25 @@ class DataPreprocessor:
         for key in ('lot_file', 'machine_file', 'setup_file'):
             name, ext = os.path.splitext(self.config[key])
             for suffix in ('_small', '_medium', '_large'):
-                if name.endswith(suffix):
+                if name.lower().endswith(suffix):
                     name = name[:-len(suffix)]
                     break
-            paths[key] = os.path.join(self.dataset_path, f'{name}_{self.dataset_size}{ext}')
+            candidate = os.path.join(self.dataset_path, f'{name}_{self.dataset_size}{ext}')
+            paths[key] = find_case_insensitive_path(candidate)
 
         frames = []
         for p in (paths['lot_file'], paths['machine_file'], paths['setup_file']):
             frame = None
-            if os.path.exists(p):
+            resolved_p = find_case_insensitive_path(p)
+            if os.path.exists(resolved_p):
                 for enc in ('utf-8-sig', 'cp949', 'euc-kr', 'cp1252'):
                     try:
-                        frame = pd.read_csv(p, encoding=enc)
+                        frame = pd.read_csv(resolved_p, encoding=enc)
                         break
                     except Exception:
                         pass
             if frame is None:
-                raise ValueError(f'Cannot decode CSV {p!r}')
+                raise ValueError(f'Cannot decode CSV {p!r} (resolved: {resolved_p!r})')
             frames.append(frame)
 
         self.lot_df, self.machine_df, self.setup_df = frames
@@ -692,8 +726,10 @@ class DataPreprocessor:
         self.greedy_data = self.greedy_state
 
     def run_pipeline(self, choice):
+        self.last_error = None
         try:
             if not self.load_data(choice):
+                self.last_error = f'Dataset path not found or invalid choice: {choice}'
                 return False
             self.normalize_columns()
             self.build_caches()
@@ -701,6 +737,7 @@ class DataPreprocessor:
             self.define_parameters()
         except Exception as e:
             import traceback
+            self.last_error = str(e)
             print(f'  Preprocessing error: {e}')
             traceback.print_exc()
             return False

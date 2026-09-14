@@ -287,7 +287,13 @@ if app_mode == "🚀 Run Optimization" and btn_run:
         config['output_dir'] = str(target_dir)
 
         data = DataPreprocessor(config)
-        data.run_pipeline(sel_dataset_code)
+        pipeline_ok = data.run_pipeline(sel_dataset_code)
+        if not pipeline_ok or not data.P or getattr(data, 'greedy_state', None) is None:
+            err_msg = getattr(data, 'last_error', None) or "Dataset files could not be loaded or processed."
+            st.error(f"❌ **Preprocessing Failed**: {err_msg}")
+            status.update(label="Preprocessing Failed", state="error")
+            st.stop()
+
         st.write(f"Dataset preprocessed: **{len(data.P)} lots** on **{len(data.M)} machines** across **{len(data.G)} product families**.")
 
         write_run_manifest(str(target_dir), config, data, p_seed, exec_mode, mip_solver)
@@ -302,6 +308,13 @@ if app_mode == "🚀 Run Optimization" and btn_run:
                 frame, mip_obj, elapsed, mip_gap = mip_res
                 results['mip'] = (frame, mip_obj, elapsed)
                 st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
+            else:
+                if exec_mode == 'mip':
+                    st.error(f"❌ Cannot solve with MIP: {mip_solver.upper()} solver is not available or licensed in this cloud environment. Please switch 'Solver Mode' to **Heuristics Only**.")
+                    status.update(label="MIP Solver Unavailable", state="error")
+                    st.stop()
+                else:
+                    st.warning(f"⚠️ {mip_solver.upper()} solver not available in cloud environment. Continuing with Heuristic Optimization...")
 
         # Heuristic Phase
         if exec_mode in ('heuristic', 'both'):
