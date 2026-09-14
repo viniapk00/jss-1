@@ -28,9 +28,15 @@ from main import _run_mip
 
 # Pass through any Gurobi WLS credentials configured in Streamlit Cloud Secrets
 try:
-    if hasattr(st, 'secrets') and 'gurobi' in st.secrets:
-        for _k, _v in st.secrets['gurobi'].items():
-            os.environ[f'GRB_{_k.upper()}'] = str(_v)
+    if hasattr(st, 'secrets'):
+        if 'gurobi' in st.secrets:
+            for _k, _v in st.secrets['gurobi'].items():
+                os.environ[f'GRB_{_k.upper()}'] = str(_v)
+        for _k in ('WLSACCESSID', 'WLSSECRET', 'LICENSEID'):
+            if _k in st.secrets:
+                os.environ[f'GRB_{_k.upper()}'] = str(st.secrets[_k])
+            elif _k.lower() in st.secrets:
+                os.environ[f'GRB_{_k.upper()}'] = str(st.secrets[_k.lower()])
 except Exception:
     pass
 
@@ -324,7 +330,7 @@ if app_mode == "🚀 Run Optimization" and btn_run:
                 or os.environ.get('GRB_LICENSEID')
                 or os.path.exists(os.path.expanduser('~/gurobi.lic'))
                 or os.path.exists('C:/Users/hkuser/gurobi.lic')
-                or (hasattr(st, 'secrets') and 'gurobi' in st.secrets)
+                or (hasattr(st, 'secrets') and ('gurobi' in st.secrets or 'WLSACCESSID' in st.secrets or 'wlsaccessid' in st.secrets))
             )
 
             # Medium (12,617 vars) and Large (345,082 vars) exceed free community size limit (2,000 vars)
