@@ -235,7 +235,18 @@ if app_mode == "🚀 Run Optimization":
     obj_choices = get_available_objectives()
     sel_obj = st.sidebar.selectbox("Objective Model", list(obj_choices.keys()), format_func=lambda k: f"{k} ({obj_choices[k]})")
 
-    exec_mode = st.sidebar.selectbox("Solver Mode", ["heuristic", "mip", "both"], format_func=lambda m: {"heuristic": "Heuristics Only (Greedy + Roulette + LNS)", "mip": "MIP Only (Exact Solver)", "both": "Both (Comparative Benchmarking)"}[m])
+    exec_mode = st.sidebar.selectbox(
+        "Solver Mode",
+        ["heuristic", "mip", "both"],
+        index=0,
+        format_func=lambda m: {
+            "heuristic": "Heuristics Only (Greedy + Roulette + LNS) [Cloud / Fast]",
+            "mip": "MIP Only (Exact Solver - Gurobi/CPLEX Local)",
+            "both": "Both (Comparative Benchmarking - Local)"
+        }[m]
+    )
+    if exec_mode in ("mip", "both"):
+        st.sidebar.caption("ℹ️ *Catatan: Solver MIP membutuhkan instalasi & lisensi lokal Gurobi/CPLEX.*")
     
     mip_solver = st.sidebar.selectbox("MIP Engine", ["gurobi", "cplex"], index=0) if exec_mode in ("mip", "both") else "gurobi"
 
@@ -310,11 +321,12 @@ if app_mode == "🚀 Run Optimization" and btn_run:
                 st.write(f"MIP Complete in {elapsed:.2f}s | Objective: {mip_obj:,.2f}")
             else:
                 if exec_mode == 'mip':
-                    st.error(f"❌ Cannot solve with MIP: {mip_solver.upper()} solver is not available or licensed in this cloud environment. Please switch 'Solver Mode' to **Heuristics Only**.")
+                    st.error(f"❌ **MIP Solver ({mip_solver.upper()}) Tidak Tersedia di Cloud**\n\nServer Streamlit Cloud gratis tidak memiliki lisensi/binary solver komersial Gurobi atau CPLEX.")
+                    st.info("💡 **Solusi**: Di sidebar sebelah kiri, ubah pilihan **Solver Mode** menjadi **`Heuristics Only (Greedy + Roulette + LNS)`**, lalu klik kembali tombol **▶️ Start Scheduling**.\n\n*(Atau jika ingin melihat grafik perbandingan MIP vs Heuristik yang sudah dihitung sebelumnya, pilih menu **📂 Explore Saved Runs** di sidebar)*.")
                     status.update(label="MIP Solver Unavailable", state="error")
                     st.stop()
                 else:
-                    st.warning(f"⚠️ {mip_solver.upper()} solver not available in cloud environment. Continuing with Heuristic Optimization...")
+                    st.warning(f"⚠️ {mip_solver.upper()} solver tidak tersedia di cloud. Melanjutkan dengan optimasi Heuristik...")
 
         # Heuristic Phase
         if exec_mode in ('heuristic', 'both'):
