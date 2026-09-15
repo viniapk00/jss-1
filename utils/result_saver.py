@@ -302,19 +302,29 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
         lot = r.get('lot ID')
 
         # Parse start time (seconds)
-        start_val = r.get(col_start)
-        if start_val is None or (isinstance(start_val, float) and math.isnan(start_val)):
-            start_val = r.get('Processing Start (raw sec)', 0.0)
-        if isinstance(start_val, str):
+        raw_start = r.get('Processing Start (raw sec)')
+        if raw_start is not None and not (isinstance(raw_start, float) and math.isnan(raw_start)):
             try:
-                start_val = float(start_val)
-            except ValueError:
-                if ref_dt is not None:
-                    dt_val = pd.to_datetime(start_val)
-                    start_val = (dt_val - ref_dt).total_seconds()
-                else:
-                    start_val = 0.0
-        start_sec = float(start_val or 0.0)
+                start_sec = float(raw_start)
+            except (ValueError, TypeError):
+                start_sec = None
+        else:
+            start_sec = None
+
+        if start_sec is None:
+            start_val = r.get(col_start)
+            if isinstance(start_val, str):
+                try:
+                    start_sec = float(start_val)
+                except ValueError:
+                    if ref_dt is not None:
+                        dt_val = pd.to_datetime(start_val)
+                        start_sec = (dt_val - ref_dt).total_seconds()
+                    else:
+                        start_sec = 0.0
+            else:
+                start_sec = float(start_val or 0.0)
+
         setup_sec = float(r.get('Setup Time', 0.0) or 0.0)
         proc_sec = float(r.get('Processing Time', 0.0) or 0.0)
         end_sec = start_sec + proc_sec
@@ -327,6 +337,29 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
         lot for lot, comp in lot_max_end.items()
         if comp > lot_due_sec.get(lot, float('inf')) + 1e-6
     }
+
+    max_end_sec = max((item[6] for item in parsed_records), default=0.0)
+    max_horizon_days = max_end_sec / 86400.0
+    num_days = int(math.ceil(max_horizon_days)) + 1
+
+    # Vertical divider lines for every single day across the scheduling horizon ("garis tiap hari")
+    day_shapes = [
+        dict(
+            type='line',
+            x0=d,
+            x1=d,
+            y0=0,
+            y1=1,
+            yref='paper',
+            line=dict(
+                color='#64748B' if d == 0 else 'rgba(148, 163, 184, 0.55)',
+                width=2 if d == 0 else 1.5,
+                dash='solid' if d == 0 else 'dash'
+            ),
+            layer='below'
+        )
+        for d in range(num_days + 1)
+    ]
 
     fig = go.Figure()
     shown_lots = set()
@@ -342,12 +375,14 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
 
         common = dict(y=[y_pos[m]], orientation='h', legendgroup=str(lot))
 
-        # Setup bar (stippled dots pattern)
+        # Setup bar (in days, stippled dots pattern)
         if setup_sec > 0:
-            setup_start_hr = max(0.0, start_sec - setup_sec) / 3600.0 if start_sec >= setup_sec else start_sec / 3600.0
+            setup_start_sec = max(0.0, start_sec - setup_sec) if start_sec >= setup_sec else start_sec
+            setup_start_day = setup_start_sec / 86400.0
+            setup_dur_day = setup_sec / 86400.0
             fig.add_trace(go.Bar(
-                x=[setup_sec / 3600.0],
-                base=[setup_start_hr],
+                x=[setup_dur_day],
+                base=[setup_start_day],
                 marker=dict(color=color, pattern=dict(shape='.', size=6, solidity=0.3)),
                 showlegend=False,
                 name=f'Lot {lot} Setup',
@@ -355,20 +390,23 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
                     f"<b>[SETUP] Lot {lot}</b><br>"
                     f"Product: {product_id}<br>"
                     f"Machine: {m}<br>"
-                    f"Setup Duration: {setup_sec:.0f}s ({setup_sec/3600.0:.2f}h)<extra></extra>"
+                    f"Setup Time: Day {setup_start_day:.3f} → Day {(setup_start_sec + setup_sec)/86400.0:.3f}<br>"
+                    f"Duration: {setup_dur_day:.3f} days ({setup_sec/3600.0:.2f}h | {setup_sec:.0f}s)<extra></extra>"
                 ),
                 **common
             ))
 
-        start_hr = start_sec / 3600.0
-        end_hr = end_sec / 3600.0
-        due_hr = due_sec / 3600.0 if math.isfinite(due_sec) else 0.0
+        start_day = start_sec / 86400.0
+        end_day = end_sec / 86400.0
+        proc_day = proc_sec / 86400.0
+        due_day = due_sec / 86400.0 if math.isfinite(due_sec) else float('inf')
+        due_day_str = f"Day {due_day:.3f} ({due_sec/3600.0:.2f}h)" if math.isfinite(due_sec) else "None"
 
         if not is_tardy:
-            # Entire operation is on-time
+            # Entire operation is on-time (unit: days)
             fig.add_trace(go.Bar(
-                x=[proc_sec / 3600.0],
-                base=[start_hr],
+                x=[proc_day],
+                base=[start_day],
                 marker_color=color,
                 name=f'Lot {lot}',
                 showlegend=(lot not in shown_lots),
@@ -377,10 +415,10 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
                     f"Product: {product_id}<br>"
                     f"Option: {option_id}<br>"
                     f"Machine: {m}<br>"
-                    f"Start: {start_sec:.0f}s ({start_hr:.2f}h)<br>"
-                    f"Process: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<br>"
-                    f"End: {end_sec:.0f}s ({end_hr:.2f}h)<br>"
-                    f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<extra></extra>"
+                    f"Start: Day {start_day:.3f} ({start_sec/3600.0:.2f}h)<br>"
+                    f"Process: {proc_day:.3f} days ({proc_sec/3600.0:.2f}h)<br>"
+                    f"End: Day {end_day:.3f} ({end_sec/3600.0:.2f}h)<br>"
+                    f"Due Date: {due_day_str}<extra></extra>"
                 ),
                 **common
             ))
@@ -389,10 +427,11 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
             # Tardy lot: partition into on-time portion (before due_sec) and tardy portion (from due_sec onwards)
             ontime_end_sec = min(end_sec, due_sec)
             if ontime_end_sec > start_sec:
-                ontime_dur_hr = (ontime_end_sec - start_sec) / 3600.0
+                ontime_dur_sec = ontime_end_sec - start_sec
+                ontime_dur_day = ontime_dur_sec / 86400.0
                 fig.add_trace(go.Bar(
-                    x=[ontime_dur_hr],
-                    base=[start_hr],
+                    x=[ontime_dur_day],
+                    base=[start_day],
                     marker_color=color,
                     name=f'Lot {lot}',
                     showlegend=(lot not in shown_lots),
@@ -401,10 +440,10 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
                         f"Product: {product_id}<br>"
                         f"Option: {option_id}<br>"
                         f"Machine: {m}<br>"
-                        f"Start: {start_sec:.0f}s ({start_hr:.2f}h)<br>"
-                        f"Process: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<br>"
-                        f"End: {end_sec:.0f}s ({end_hr:.2f}h)<br>"
-                        f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<extra></extra>"
+                        f"Start: Day {start_day:.3f} ({start_sec/3600.0:.2f}h)<br>"
+                        f"On-Time Duration: {ontime_dur_day:.3f} days ({ontime_dur_sec/3600.0:.2f}h)<br>"
+                        f"Cutoff (Due Date): {due_day_str}<br>"
+                        f"Total Operation: {proc_day:.3f} days ({proc_sec/3600.0:.2f}h)<extra></extra>"
                     ),
                     **common
                 ))
@@ -413,13 +452,13 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
             # Tardy portion: from due_sec onwards until completion, marked with red hatching ('arsir merah')
             if end_sec > due_sec:
                 tardy_start_sec = max(start_sec, due_sec)
-                tardy_start_hr = tardy_start_sec / 3600.0
+                tardy_start_day = tardy_start_sec / 86400.0
                 tardy_dur_sec = end_sec - tardy_start_sec
-                tardy_dur_hr = tardy_dur_sec / 3600.0
+                tardy_dur_day = tardy_dur_sec / 86400.0
 
                 fig.add_trace(go.Bar(
-                    x=[tardy_dur_hr],
-                    base=[tardy_start_hr],
+                    x=[tardy_dur_day],
+                    base=[tardy_start_day],
                     marker=dict(
                         color=color,
                         pattern=dict(shape='/', size=8, solidity=0.5, fgcolor='#DC2626', bgcolor=color),
@@ -433,10 +472,10 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
                         f"Product: {product_id}<br>"
                         f"Option: {option_id}<br>"
                         f"Machine: {m}<br>"
-                        f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<br>"
-                        f"Tardy Portion: {tardy_start_sec:.0f}s ({tardy_start_hr:.2f}h) → {end_sec:.0f}s ({end_hr:.2f}h)<br>"
-                        f"Overdue Duration: +{tardy_dur_sec:.0f}s (+{tardy_dur_hr:.2f}h)<br>"
-                        f"Total Operation: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<extra></extra>"
+                        f"Due Date: {due_day_str}<br>"
+                        f"Tardy Portion: Day {tardy_start_day:.3f} → Day {end_day:.3f}<br>"
+                        f"Overdue Duration: +{tardy_dur_day:.3f} days (+{tardy_dur_sec/3600.0:.2f}h)<br>"
+                        f"Total Operation: {proc_day:.3f} days ({proc_sec/3600.0:.2f}h)<extra></extra>"
                     ),
                     y=[y_pos[m]],
                     orientation='h'
@@ -455,8 +494,23 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
 
     date_title = f" - {ref_dt:%m/%d/%Y}" if ref_dt is not None else ""
     fig.update_layout(
-        title=f'Gantt Schedule [{tag}]{date_title}' if tag else f'Gantt Schedule{date_title}',
-        xaxis_title='Time (hours)',
+        title=f'Gantt Schedule [{tag}] (Days){date_title}' if tag else f'Gantt Schedule (Days){date_title}',
+        xaxis=dict(
+            title=dict(text='Timeline (Days)', font=dict(size=14, color='#1E293B')),
+            tickmode='linear',
+            tick0=0,
+            dtick=1,
+            tickprefix='Day ',
+            showgrid=True,
+            gridwidth=1.5,
+            gridcolor='rgba(148, 163, 184, 0.45)',
+            zeroline=True,
+            zerolinewidth=2,
+            zerolinecolor='#475569',
+            range=[-0.1, max(1.0, max_horizon_days + 0.5)],
+            rangeslider=dict(visible=True)
+        ),
+        shapes=day_shapes,
         barmode='overlay',
         width=1200,
         height=max(500, 35 * len(machines)),
@@ -470,7 +524,6 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
         hovermode='closest',
         legend=dict(yanchor='top', y=0.99, xanchor='left', x=1.02)
     )
-    fig.update_xaxes(rangeslider={'visible': True})
     return fig
 
 
