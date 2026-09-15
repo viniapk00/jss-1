@@ -236,8 +236,8 @@ def format_objective_breakdown(obj, metrics, objective_type=''):
 # 2. OUTPUT & PERSISTENCE
 # =============================================================================
 
-def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag):
-    """Generate and save interactive Plotly Gantt chart HTML."""
+def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
+    """Generate interactive Plotly Gantt chart figure with red hatching ('arsir merah') on tardy portions."""
     if schedule_df is None or schedule_df.empty:
         return None
     try:
@@ -245,24 +245,61 @@ def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag):
     except ImportError:
         return None
 
-    os.makedirs(results_dir, exist_ok=True)
+    m_col = 'Machine ID' if 'Machine ID' in schedule_df.columns else ('Machine' if 'Machine' in schedule_df.columns else None)
+    if not m_col:
+        return None
+
     ml = machine_line if isinstance(machine_line, dict) else (getattr(machine_line, '_line_map', {}) or {})
-    machines = sorted(schedule_df['Machine ID'].unique(), key=lambda m: (_nat_key(ml.get(m, '')), _nat_key(m)))
+    machines = sorted(schedule_df[m_col].unique(), key=lambda m: (_nat_key(ml.get(m, '')), _nat_key(m)))
     y_pos = {m: i for i, m in enumerate(machines)}
+
+    # Distinct non-red palette for lots so red (#DC2626) is reserved exclusively for tardy hatching
     colors = [
-        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-        '#393b79', '#637939', '#8c6d31', '#843c39', '#7b4173'
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#9467bd', '#8c564b',
+        '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#0ea5e9',
+        '#10b981', '#6366f1', '#f59e0b', '#8b5cf6', '#14b8a6',
+        '#393b79', '#637939', '#8c6d31', '#7b4173'
     ]
     lots = sorted(schedule_df['lot ID'].unique(), key=_nat_key)
     lot_color = {lot: colors[i % len(colors)] for i, lot in enumerate(lots)}
-    fig, shown = go.Figure(), set()
 
+    # 1. Resolve start_dt reference
+    ref_dt = tc.start_dt if (tc is not None and hasattr(tc, 'start_dt')) else None
+    if ref_dt is None:
+        try:
+            ref_dt = pd.to_datetime('2026-01-01 00:00:00')
+        except Exception:
+            pass
+
+    # 2. Extract due date per lot in seconds
+    lot_due_sec = {}
+    if data is not None and hasattr(data, 'Dp') and data.Dp:
+        lot_due_sec = {str(k): float(v) for k, v in data.Dp.items()}
+    else:
+        for r in schedule_df.to_dict('records'):
+            lot = r.get('lot ID')
+            if lot and lot not in lot_due_sec:
+                due_val = r.get('Due date')
+                if due_val is not None and str(due_val).strip() not in ('', 'nan', 'None', '0'):
+                    try:
+                        due_dt = pd.to_datetime(due_val)
+                        if ref_dt is not None:
+                            lot_due_sec[lot] = float((due_dt - ref_dt).total_seconds())
+                        else:
+                            lot_due_sec[lot] = float('inf')
+                    except Exception:
+                        lot_due_sec[lot] = float('inf')
+                else:
+                    lot_due_sec[lot] = float('inf')
+
+    # 3. Calculate max completion time per lot to identify tardy lots
+    lot_max_end = {}
+    parsed_records = []
     for r in schedule_df.to_dict('records'):
-        m = r['Machine ID']
+        m = r.get(m_col)
         if m not in y_pos:
             continue
-        lot = r['lot ID']
+        lot = r.get('lot ID')
 
         # Parse start time (seconds)
         start_val = r.get(col_start)
@@ -272,28 +309,46 @@ def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag):
             try:
                 start_val = float(start_val)
             except ValueError:
-                if tc is not None and hasattr(tc, 'start_dt'):
+                if ref_dt is not None:
                     dt_val = pd.to_datetime(start_val)
-                    start_val = (dt_val - tc.start_dt).total_seconds()
+                    start_val = (dt_val - ref_dt).total_seconds()
                 else:
                     start_val = 0.0
         start_sec = float(start_val or 0.0)
-
         setup_sec = float(r.get('Setup Time', 0.0) or 0.0)
         proc_sec = float(r.get('Processing Time', 0.0) or 0.0)
+        end_sec = start_sec + proc_sec
+
+        lot_max_end[lot] = max(lot_max_end.get(lot, 0.0), end_sec)
+        parsed_records.append((r, m, lot, start_sec, setup_sec, proc_sec, end_sec))
+
+    # A lot is tardy if its final completion exceeds its due date
+    tardy_lots = {
+        lot for lot, comp in lot_max_end.items()
+        if comp > lot_due_sec.get(lot, float('inf')) + 1e-6
+    }
+
+    fig = go.Figure()
+    shown_lots = set()
+    tardy_legend_shown = False
+
+    for r, m, lot, start_sec, setup_sec, proc_sec, end_sec in parsed_records:
         color = lot_color.get(lot, '#808080')
         product_id = r.get('Product ID', '')
         option_id = r.get('Option', '')
-        job_seq = r.get(col_job, '')
+        job_seq = r.get(col_job, r.get('Operation Sequence', ''))
+        due_sec = lot_due_sec.get(lot, float('inf'))
+        is_tardy = (lot in tardy_lots)
 
         common = dict(y=[y_pos[m]], orientation='h', legendgroup=str(lot))
 
+        # Setup bar (stippled dots pattern)
         if setup_sec > 0:
             setup_start_hr = max(0.0, start_sec - setup_sec) / 3600.0 if start_sec >= setup_sec else start_sec / 3600.0
             fig.add_trace(go.Bar(
                 x=[setup_sec / 3600.0],
                 base=[setup_start_hr],
-                marker=dict(color=color, pattern=dict(shape='/', size=6, solidity=0.3)),
+                marker=dict(color=color, pattern=dict(shape='.', size=6, solidity=0.3)),
                 showlegend=False,
                 name=f'Lot {lot} Setup',
                 hovertemplate=(
@@ -305,30 +360,102 @@ def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag):
                 **common
             ))
 
-        show_legend = lot not in shown
-        proc_start_hr = start_sec / 3600.0
-        fig.add_trace(go.Bar(
-            x=[proc_sec / 3600.0],
-            base=[proc_start_hr],
-            marker_color=color,
-            name=f'Lot {lot}',
-            showlegend=show_legend,
-            hovertemplate=(
-                f"<b>Lot {lot}</b> (Job {job_seq})<br>"
-                f"Product: {product_id}<br>"
-                f"Option: {option_id}<br>"
-                f"Machine: {m}<br>"
-                f"Start: {start_sec:.0f}s ({proc_start_hr:.2f}h)<br>"
-                f"Process: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<br>"
-                f"End: {start_sec + proc_sec:.0f}s ({(start_sec + proc_sec)/3600.0:.2f}h)<extra></extra>"
-            ),
-            **common
-        ))
-        shown.add(lot)
+        start_hr = start_sec / 3600.0
+        end_hr = end_sec / 3600.0
+        due_hr = due_sec / 3600.0 if math.isfinite(due_sec) else 0.0
 
-    date_title = f" - {tc.start_dt:%m/%d/%Y}" if (tc is not None and hasattr(tc, 'start_dt')) else ""
+        if not is_tardy:
+            # Entire operation is on-time
+            fig.add_trace(go.Bar(
+                x=[proc_sec / 3600.0],
+                base=[start_hr],
+                marker_color=color,
+                name=f'Lot {lot}',
+                showlegend=(lot not in shown_lots),
+                hovertemplate=(
+                    f"<b>Lot {lot}</b> (Job {job_seq})<br>"
+                    f"Product: {product_id}<br>"
+                    f"Option: {option_id}<br>"
+                    f"Machine: {m}<br>"
+                    f"Start: {start_sec:.0f}s ({start_hr:.2f}h)<br>"
+                    f"Process: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<br>"
+                    f"End: {end_sec:.0f}s ({end_hr:.2f}h)<br>"
+                    f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<extra></extra>"
+                ),
+                **common
+            ))
+            shown_lots.add(lot)
+        else:
+            # Tardy lot: partition into on-time portion (before due_sec) and tardy portion (from due_sec onwards)
+            ontime_end_sec = min(end_sec, due_sec)
+            if ontime_end_sec > start_sec:
+                ontime_dur_hr = (ontime_end_sec - start_sec) / 3600.0
+                fig.add_trace(go.Bar(
+                    x=[ontime_dur_hr],
+                    base=[start_hr],
+                    marker_color=color,
+                    name=f'Lot {lot}',
+                    showlegend=(lot not in shown_lots),
+                    hovertemplate=(
+                        f"<b>Lot {lot}</b> (Job {job_seq}) [On-Time Portion]<br>"
+                        f"Product: {product_id}<br>"
+                        f"Option: {option_id}<br>"
+                        f"Machine: {m}<br>"
+                        f"Start: {start_sec:.0f}s ({start_hr:.2f}h)<br>"
+                        f"Process: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<br>"
+                        f"End: {end_sec:.0f}s ({end_hr:.2f}h)<br>"
+                        f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<extra></extra>"
+                    ),
+                    **common
+                ))
+                shown_lots.add(lot)
+
+            # Tardy portion: from due_sec onwards until completion, marked with red hatching ('arsir merah')
+            if end_sec > due_sec:
+                tardy_start_sec = max(start_sec, due_sec)
+                tardy_start_hr = tardy_start_sec / 3600.0
+                tardy_dur_sec = end_sec - tardy_start_sec
+                tardy_dur_hr = tardy_dur_sec / 3600.0
+
+                fig.add_trace(go.Bar(
+                    x=[tardy_dur_hr],
+                    base=[tardy_start_hr],
+                    marker=dict(
+                        color=color,
+                        pattern=dict(shape='/', size=8, solidity=0.5, fgcolor='#DC2626', bgcolor=color),
+                        line=dict(color='#DC2626', width=2)
+                    ),
+                    name='⚠️ Tardy / Overdue' if not tardy_legend_shown else f'Lot {lot} (Tardy)',
+                    showlegend=not tardy_legend_shown,
+                    legendgroup='tardy_legend' if not tardy_legend_shown else str(lot),
+                    hovertemplate=(
+                        f"<b>⚠️ [TARDY] Lot {lot}</b> (Job {job_seq}) [Overdue Portion]<br>"
+                        f"Product: {product_id}<br>"
+                        f"Option: {option_id}<br>"
+                        f"Machine: {m}<br>"
+                        f"Due Date: {due_sec:.0f}s ({due_hr:.2f}h)<br>"
+                        f"Tardy Portion: {tardy_start_sec:.0f}s ({tardy_start_hr:.2f}h) → {end_sec:.0f}s ({end_hr:.2f}h)<br>"
+                        f"Overdue Duration: +{tardy_dur_sec:.0f}s (+{tardy_dur_hr:.2f}h)<br>"
+                        f"Total Operation: {proc_sec:.0f}s ({proc_sec/3600.0:.2f}h)<extra></extra>"
+                    ),
+                    y=[y_pos[m]],
+                    orientation='h'
+                ))
+                tardy_legend_shown = True
+
+    # Ensure every lot appears in the legend even if entirely tardy
+    for lot in lots:
+        if lot not in shown_lots and lot in lot_color:
+            fig.add_trace(go.Bar(
+                x=[0], base=[0], y=[0], orientation='h',
+                marker_color=lot_color[lot],
+                name=f'Lot {lot}', showlegend=True,
+                legendgroup=str(lot), visible=True
+            ))
+
+    date_title = f" - {ref_dt:%m/%d/%Y}" if ref_dt is not None else ""
     fig.update_layout(
-        title=f'Gantt Schedule [{tag}]{date_title}',
+        title=f'Gantt Schedule [{tag}]{date_title}' if tag else f'Gantt Schedule{date_title}',
         xaxis_title='Time (hours)',
         barmode='overlay',
         width=1200,
@@ -337,13 +464,24 @@ def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag):
         yaxis=dict(
             tickmode='array',
             tickvals=list(y_pos.values()),
-            ticktext=[f'{machine_line.get(m, "-")} - {m}' for m in machines],
+            ticktext=[f'{ml.get(m, "-")} - {m}' for m in machines],
             autorange='reversed'
         ),
         hovermode='closest',
         legend=dict(yanchor='top', y=0.99, xanchor='left', x=1.02)
     )
     fig.update_xaxes(rangeslider={'visible': True})
+    return fig
+
+
+def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag, data=None):
+    """Generate and save interactive Plotly Gantt chart HTML."""
+    if schedule_df is None or schedule_df.empty:
+        return None
+    fig = build_gantt_figure(tc, schedule_df, machine_line=machine_line, tag=tag, data=data)
+    if fig is None:
+        return None
+    os.makedirs(results_dir, exist_ok=True)
     path = os.path.join(results_dir, f'gantt_{tag}.html')
     fig.write_html(path, include_plotlyjs='cdn')
     print(f"  Gantt chart saved: {path}")
@@ -565,7 +703,7 @@ def save_mip_result(tc, data, mip, out_dir, solver_name='cplex'):
     print(format_objective_breakdown(obj, metrics, objective_type=data.config['objective_type']))
     total_time = getattr(mip, 'total_pipeline_time', None) or float(mip.solve_time)
     save_result(tc, out_dir, data.dataset_size, data, gdf, total_time, method=f'mip_{solver_name}')
-    save_gantt_chart(tc, out_dir, gdf, data.machine_line, f'{data.dataset_size}_mip_{solver_name}')
+    save_gantt_chart(tc, out_dir, gdf, data.machine_line, f'{data.dataset_size}_mip_{solver_name}', data=data)
 
     best_bound = getattr(mip, 'best_bound', None)
     status = getattr(mip, 'solver_status_name', None) or getattr(mip, 'solver_status', None) or getattr(getattr(getattr(mip, 'model', None), 'solve_details', None), 'status', None)
@@ -594,7 +732,7 @@ def save_heuristic_results(tc, data, results, metas, ds_dir, metrics_cache=None)
         if name in {'best_greedy', 'roulette', 'lns'} and df is not None and not df.empty:
             out_dir = os.path.join(ds_dir, name)
             cache[name] = save_result(tc, out_dir, data.dataset_size, data, df, elapsed, method=name)
-            save_gantt_chart(tc, out_dir, df, data.machine_line, f'{data.dataset_size}_{name}')
+            save_gantt_chart(tc, out_dir, df, data.machine_line, f'{data.dataset_size}_{name}', data=data)
             saved[name] = (df, obj, elapsed)
     return saved, {k: (metas or {}).get(k, {}) for k in saved}
 

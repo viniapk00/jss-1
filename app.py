@@ -22,7 +22,7 @@ from utils.preprocessing import ConfigLoader, DataPreprocessor, OBJECTIVES, load
 from utils.result_saver import (
     assert_schedule_feasible, compare_results, safe_to_csv,
     save_heuristic_results, save_mip_result, schedule_metrics,
-    write_run_manifest, save_gantt_chart
+    write_run_manifest, save_gantt_chart, build_gantt_figure
 )
 from main import _run_mip
 
@@ -208,50 +208,16 @@ def render_comparison_charts(summary_df: pd.DataFrame):
 
 
 def dynamic_gantt(df: pd.DataFrame, title: str):
-    """Fallback interactive Plotly Gantt chart from schedule dataframe."""
-    if df.empty or 'Machine' not in df.columns:
-        st.warning("Schedule data is empty or missing 'Machine' column.")
+    """Fallback interactive Plotly Gantt chart from schedule dataframe with tardy hatching."""
+    if df.empty:
+        st.warning("Schedule data is empty.")
         return
-    
-    machines = sorted(df['Machine'].unique())
-    y_pos = {m: i for i, m in enumerate(machines)}
-    lots = sorted(df['lot ID'].unique())
-    palette = px.colors.qualitative.Plotly * (len(lots) // 10 + 1)
-    color_map = {lot: palette[i] for i, lot in enumerate(lots)}
-
-    fig = go.Figure()
-    for _, r in df.iterrows():
-        m, lot = r['Machine'], r['lot ID']
-        start_sec, proc_sec = float(r.get('Start Time (sec)', 0)), float(r.get('Processing Time', 0))
-        setup_sec = float(r.get('Setup Time', 0))
-        prod = r.get('Product ID', '-')
-        op = r.get('Operation Sequence', '-')
-
-        if setup_sec > 0:
-            fig.add_trace(go.Bar(
-                x=[setup_sec / 3600.0], base=[max(0.0, start_sec - setup_sec) / 3600.0],
-                y=[y_pos[m]], orientation='h', showlegend=False,
-                marker=dict(color=color_map[lot], pattern=dict(shape='/', size=5)),
-                hovertemplate=f"<b>[SETUP] Lot {lot}</b><br>Machine: {m}<br>Duration: {setup_sec:.0f}s<extra></extra>"
-            ))
-        
-        fig.add_trace(go.Bar(
-            x=[proc_sec / 3600.0], base=[start_sec / 3600.0],
-            y=[y_pos[m]], orientation='h', name=f"Lot {lot}", showlegend=False,
-            marker_color=color_map[lot],
-            hovertemplate=f"<b>Lot {lot}</b> (Op {op})<br>Product: {prod}<br>Machine: {m}<br>Start: {start_sec/3600:.2f}h<br>Proc: {proc_sec/3600:.2f}h<extra></extra>"
-        ))
-
-    fig.update_layout(
-        title=f"<b>{title}</b>",
-        xaxis_title="Time (hours)",
-        barmode='overlay',
-        height=max(500, 30 * len(machines)),
-        yaxis=dict(tickmode='array', tickvals=list(y_pos.values()), ticktext=machines, autorange='reversed'),
-        template="plotly_white", margin=dict(l=120, r=20, t=60, b=40)
-    )
-    fig.update_xaxes(rangeslider=dict(visible=True))
-    st.plotly_chart(fig, use_container_width=True)
+    fig = build_gantt_figure(None, df, tag=title)
+    if fig is not None:
+        fig.update_layout(template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Could not generate Gantt chart from schedule data.")
 
 
 # ==========================================
