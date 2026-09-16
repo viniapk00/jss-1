@@ -4,10 +4,9 @@ Run with:
     streamlit run app.py
 """
 from __future__ import annotations
-import os, sys, time, glob, json
+import os, sys
 from pathlib import Path
 import pandas as pd
-import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
@@ -15,15 +14,10 @@ import plotly.express as px
 
 # Project root resolution
 PROJECT_ROOT = Path(__file__).resolve().parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 
 from utils.preprocessing import ConfigLoader, DataPreprocessor, OBJECTIVES, load_objective_class
-from utils.result_saver import (
-    assert_schedule_feasible, compare_results, safe_to_csv,
-    save_heuristic_results, save_mip_result, schedule_metrics,
-    write_run_manifest, save_gantt_chart, build_gantt_figure
-)
+from utils.result_saver import (assert_schedule_feasible, compare_results, save_heuristic_results, schedule_metrics, write_run_manifest, build_gantt_figure)
 from main import _run_mip
 
 # Pass through any Gurobi WLS credentials configured in Streamlit Cloud Secrets or default to user's WLS Academic License
@@ -41,9 +35,7 @@ except Exception:
     pass
 
 # Ensure Gurobi WLS Academic License is active (registered to vinia@postech.ac.kr)
-os.environ.setdefault('GRB_WLSACCESSID', 'a2e9e405-671a-496c-898e-e927add4a289')
-os.environ.setdefault('GRB_WLSSECRET', '54c6c2e9-20a7-47b8-8bc3-33888589965a')
-os.environ.setdefault('GRB_LICENSEID', '2848387')
+for _k, _v in (('GRB_WLSACCESSID', 'a2e9e405-671a-496c-898e-e927add4a289'), ('GRB_WLSSECRET', '54c6c2e9-20a7-47b8-8bc3-33888589965a'), ('GRB_LICENSEID', '2848387')): os.environ.setdefault(_k, _v)
 
 # Write gurobi.lic to disk locations where Gurobi native library looks for it
 _lic_content = (
@@ -55,18 +47,11 @@ _lic_content = (
 for _ldir in [PROJECT_ROOT, Path.home(), Path.cwd()]:
     try:
         _lf = _ldir / 'gurobi.lic'
-        if not _lf.exists():
-            _lf.write_text(_lic_content, encoding='utf-8')
-    except Exception:
-        pass
+        if not _lf.exists(): _lf.write_text(_lic_content, encoding='utf-8')
+    except Exception: pass
 
 # Page Configuration
-st.set_page_config(
-    page_title="FJSS Optimization Suite",
-    page_icon="⚙️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="FJSS Optimization Suite", page_icon="⚙️", layout="wide", initial_sidebar_state="expanded")
 
 # Custom Styling
 st.markdown("""
@@ -111,22 +96,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def get_available_datasets():
-    return {
-        "Small (10 Lots, 63 Machines)": "1",
-        "Medium (80 Lots, 63 Machines)": "2",
-        "Large (350 Lots, 63 Machines)": "3"
-    }
+def get_available_datasets(): return {"Small (10 Lots, 63 Machines)": "1", "Medium (80 Lots, 63 Machines)": "2", "Large (350 Lots, 63 Machines)": "3"}
 
 
-def get_available_objectives():
-    return {
-        "tardy_only": "Minimize Weighted Tardiness",
-        "tardy_move": "Minimize Tardiness + Moving Time",
-        "tardy_move_setup": "Minimize Tardiness + Moving + Setup Time",
-        "tardy_total_time": "Minimize Tardiness + Total Time",
-        "tardy_move_makespan": "Minimize Tardiness + Moving + Makespan"
-    }
+def get_available_objectives(): return {"tardy_only": "Minimize Weighted Tardiness", "tardy_move": "Minimize Tardiness + Moving Time", "tardy_move_setup": "Minimize Tardiness + Moving + Setup Time", "tardy_total_time": "Minimize Tardiness + Total Time", "tardy_move_makespan": "Minimize Tardiness + Moving + Makespan"}
 
 
 def find_existing_runs():
@@ -137,8 +110,7 @@ def find_existing_runs():
             if d.is_dir():
                 cmp_file = d / "compare" / f"comparison_{d.name}_summary.csv"
                 manifest = d / "run_manifest.json"
-                if cmp_file.exists() or manifest.exists() or any((d / m).exists() for m in ('mip', 'best_greedy', 'lns', 'roulette')):
-                    runs.append(d.name)
+                if cmp_file.exists() or manifest.exists() or any((d / m).exists() for m in ('mip', 'best_greedy', 'lns', 'roulette')): runs.append(d.name)
     return runs
 
 
@@ -154,11 +126,9 @@ def render_kpi_card(title: str, value: str, subtitle: str = ""):
 
 
 def render_comparison_charts(summary_df: pd.DataFrame):
-    if summary_df.empty or 'Metric' not in summary_df.columns:
-        return
+    if summary_df.empty or 'Metric' not in summary_df.columns: return
     methods = [c for c in summary_df.columns if c != 'Metric']
-    if not methods:
-        return
+    if not methods: return
 
     m_idx = summary_df.set_index('Metric')
     c1, c2 = st.columns(2)
@@ -170,17 +140,8 @@ def render_comparison_charts(summary_df: pd.DataFrame):
             try: obj_vals.append(float(str(m_idx.loc['Objective', m]).replace(',', '')))
             except ValueError: obj_vals.append(None)
         
-        fig_obj = go.Figure(go.Bar(
-            x=methods, y=obj_vals,
-            text=[f"{v:,.0f}" if v is not None else "N/A" for v in obj_vals],
-            textposition='auto',
-            marker=dict(color=['#3B82F6', '#10B981', '#F59E0B', '#6366F1'][:len(methods)])
-        ))
-        fig_obj.update_layout(
-            title="<b>Objective Value Comparison (Lower is Better)</b>",
-            yaxis_title="Objective Score",
-            template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40)
-        )
+        fig_obj = go.Figure(go.Bar(x=methods, y=obj_vals, text=[f"{v:,.0f}" if v is not None else "N/A" for v in obj_vals], textposition='auto', marker=dict(color=['#3B82F6', '#10B981', '#F59E0B', '#6366F1'][:len(methods)])))
+        fig_obj.update_layout(title="<b>Objective Value Comparison (Lower is Better)</b>", yaxis_title="Objective Score", template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40))
         c1.plotly_chart(fig_obj, use_container_width=True)
 
     # Chart 2: Makespan & Total Time
@@ -193,31 +154,17 @@ def render_comparison_charts(summary_df: pd.DataFrame):
             except Exception: return None
 
         ms_vals = [time_str_to_hours(m_idx.loc['Makespan', m]) for m in methods]
-        fig_ms = go.Figure(go.Bar(
-            x=methods, y=ms_vals,
-            text=[f"{v:.1f}h" if v is not None else "N/A" for v in ms_vals],
-            textposition='auto',
-            marker=dict(color=['#06B6D4', '#8B5CF6', '#EC4899', '#14B8A6'][:len(methods)])
-        ))
-        fig_ms.update_layout(
-            title="<b>Makespan Comparison (Hours)</b>",
-            yaxis_title="Makespan (Hours)",
-            template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40)
-        )
+        fig_ms = go.Figure(go.Bar(x=methods, y=ms_vals, text=[f"{v:.1f}h" if v is not None else "N/A" for v in ms_vals], textposition='auto', marker=dict(color=['#06B6D4', '#8B5CF6', '#EC4899', '#14B8A6'][:len(methods)])))
+        fig_ms.update_layout(title="<b>Makespan Comparison (Hours)</b>", yaxis_title="Makespan (Hours)", template="plotly_white", height=380, margin=dict(l=40, r=20, t=50, b=40))
         c2.plotly_chart(fig_ms, use_container_width=True)
 
 
 def dynamic_gantt(df: pd.DataFrame, title: str):
     """Fallback interactive Plotly Gantt chart from schedule dataframe with tardy hatching."""
-    if df.empty:
-        st.warning("Schedule data is empty.")
-        return
+    if df.empty: st.warning("Schedule data is empty."); return
     fig = build_gantt_figure(None, df, tag=title)
-    if fig is not None:
-        fig.update_layout(template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Could not generate Gantt chart from schedule data.")
+    if fig is not None: fig.update_layout(template="plotly_white"); st.plotly_chart(fig, use_container_width=True)
+    else: st.warning("Could not generate Gantt chart from schedule data.")
 
 
 # ==========================================
@@ -235,16 +182,7 @@ if app_mode == "🚀 Run Optimization":
     obj_choices = get_available_objectives()
     sel_obj = st.sidebar.selectbox("Objective Model", list(obj_choices.keys()), format_func=lambda k: f"{k} ({obj_choices[k]})")
 
-    exec_mode = st.sidebar.selectbox(
-        "Solver Mode",
-        ["heuristic", "mip", "both"],
-        index=0,
-        format_func=lambda m: {
-            "heuristic": "Heuristics Only (Greedy + Roulette + LNS)",
-            "mip": "MIP Only (Exact Solver)",
-            "both": "Both (Comparative Benchmarking)"
-        }[m]
-    )
+    exec_mode = st.sidebar.selectbox("Solver Mode", ["heuristic", "mip", "both"], index=0, format_func=lambda m: {"heuristic": "Heuristics Only (Greedy + Roulette + LNS)", "mip": "MIP Only (Exact Solver)", "both": "Both (Comparative Benchmarking)"}[m])
     mip_solver = st.sidebar.selectbox("MIP Engine", ["gurobi", "cplex"], index=0) if exec_mode in ("mip", "both") else "gurobi"
 
     with st.sidebar.expander("🛠️ Hyperparameters & Overrides"):
@@ -257,14 +195,10 @@ if app_mode == "🚀 Run Optimization":
     btn_run = st.sidebar.button("▶️ Start Scheduling", type="primary", use_container_width=True)
 
 else:
-    btn_run = False
-    dataset_name = None
+    btn_run, dataset_name = False, None
     existing_runs = find_existing_runs()
-    if not existing_runs:
-        st.sidebar.warning("No existing runs found in `output/` directory.")
-        sel_run_dir = None
-    else:
-        sel_run_dir = st.sidebar.selectbox("Select Run Directory", existing_runs, index=0)
+    if not existing_runs: st.sidebar.warning("No existing runs found in `output/` directory."); sel_run_dir = None
+    else: sel_run_dir = st.sidebar.selectbox("Select Run Directory", existing_runs, index=0)
 
 
 # ==========================================
@@ -282,17 +216,12 @@ if app_mode == "🚀 Run Optimization" and btn_run:
     with st.status("Running Optimization Pipeline...", expanded=True) as status:
         st.write("Initializing configurations and preprocessing datasets...")
         config = ConfigLoader.load(PROJECT_ROOT / 'parameter.csv', sel_obj)
-        config['_project_root'] = str(PROJECT_ROOT)
-        config['solver_seed'] = p_seed
-        config['iterations'] = p_iters
-        config['greedy_route_limit'] = p_route_limit
+        config['_project_root'] = str(PROJECT_ROOT); config['solver_seed'] = p_seed; config['iterations'] = p_iters; config['greedy_route_limit'] = p_route_limit
         if p_time_limit > 0: config['time_limit_seconds'] = p_time_limit
         if p_threads > 0: config['threads'] = p_threads
 
         dataset_name = {'1': 'small', '2': 'medium', '3': 'large'}.get(sel_dataset_code, 'custom')
-        target_dir = PROJECT_ROOT / 'output' / dataset_name
-        target_dir.mkdir(parents=True, exist_ok=True)
-        config['output_dir'] = str(target_dir)
+        target_dir = PROJECT_ROOT / 'output' / dataset_name; target_dir.mkdir(parents=True, exist_ok=True); config['output_dir'] = str(target_dir)
 
         data = DataPreprocessor(config)
         pipeline_ok = data.run_pipeline(sel_dataset_code)
@@ -311,13 +240,7 @@ if app_mode == "🚀 Run Optimization" and btn_run:
         effective_heuristic = exec_mode in ('heuristic', 'both')
         if exec_mode in ('mip', 'both'):
             # Check if full Gurobi license is available
-            has_full_license = bool(
-                os.environ.get('GRB_WLSACCESSID')
-                or os.environ.get('GRB_LICENSEID')
-                or os.path.exists(os.path.expanduser('~/gurobi.lic'))
-                or os.path.exists('C:/Users/hkuser/gurobi.lic')
-                or (hasattr(st, 'secrets') and ('gurobi' in st.secrets or 'WLSACCESSID' in st.secrets or 'wlsaccessid' in st.secrets))
-            )
+            has_full_license = bool(os.environ.get('GRB_WLSACCESSID') or os.environ.get('GRB_LICENSEID') or os.path.exists(os.path.expanduser('~/gurobi.lic')) or os.path.exists('C:/Users/hkuser/gurobi.lic') or (hasattr(st, 'secrets') and ('gurobi' in st.secrets or 'WLSACCESSID' in st.secrets or 'wlsaccessid' in st.secrets)))
 
             # Medium (12,617 vars) and Large (345,082 vars) exceed free community size limit (2,000 vars)
             if dataset_name in ('medium', 'large') and not has_full_license:
@@ -325,29 +248,22 @@ if app_mode == "🚀 Run Optimization" and btn_run:
                 effective_heuristic = True
             else:
                 st.write(f"Solving with MIP ({mip_solver.upper()})...")
-                mip_start = time.perf_counter()
 
                 # Diagnostic check for required dependencies
                 err_detail = None
-                try:
-                    import docplex
-                except ImportError as e:
-                    err_detail = f"Package `docplex` belum terpasang ({e})"
+                try: import docplex
+                except ImportError as e: err_detail = f"Package `docplex` belum terpasang ({e})"
                 if not err_detail and mip_solver == 'gurobi':
-                    try:
-                        import gurobipy
-                    except ImportError as e:
-                        err_detail = f"Package `gurobipy` belum terpasang ({e})"
+                    try: import gurobipy
+                    except ImportError as e: err_detail = f"Package `gurobipy` belum terpasang ({e})"
 
                 if err_detail:
                     st.warning(f"⚠️ {mip_solver.upper()} solver belum siap: {err_detail}. Silakan klik menu **Manage app** → **Reboot** di pojok kanan bawah Streamlit Cloud agar dependensi baru dari requirements.txt ter-install. Melanjutkan otomatis dengan optimasi Heuristik...")
                     effective_heuristic = True
                 else:
                     mip_res = None
-                    try:
-                        mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
-                    except Exception as e:
-                        st.warning(f"⚠️ {mip_solver.upper()} error: {e}")
+                    try: mip_res = _run_mip(data, str(target_dir / 'mip'), mip_solver, sel_obj)
+                    except Exception as e: st.warning(f"⚠️ {mip_solver.upper()} error: {e}")
 
                     if mip_res:
                         frame, mip_obj, elapsed, mip_gap = mip_res
@@ -365,6 +281,7 @@ if app_mode == "🚀 Run Optimization" and btn_run:
             frame, reported_obj, order, elapsed = greedy_seed
             assert_schedule_feasible(frame, data)
             m = schedule_metrics(frame, data)
+            metrics_cache['best_greedy'] = m
             greedy_seed = (frame, float(m['objective']), order, elapsed)
             heuristic_results['best_greedy'] = (frame, float(m['objective']), elapsed)
             st.write(f"Best Greedy Seed: {float(m['objective']):,.2f} ({elapsed:.2f}s)")
@@ -382,12 +299,10 @@ if app_mode == "🚀 Run Optimization" and btn_run:
             st.write(f"LNS Best: {l_obj:,.2f} ({l_elapsed:.2f}s)")
 
             saved, saved_metas = save_heuristic_results(data.time, data, heuristic_results, heuristic_metas, str(target_dir), metrics_cache=metrics_cache)
-            results.update(saved)
-            metas.update(saved_metas)
+            results.update(saved); metas.update(saved_metas)
 
         # Comparison summary
-        if results or getattr(data, '_mip_failure', None):
-            compare_results(data.time, data, results, str(target_dir / 'compare'), mip_gap=mip_gap, metas=metas, metrics_cache=metrics_cache, mip_failure=getattr(data, '_mip_failure', None), mip_best_bound=getattr(data, 'mip_best_bound', None))
+        if results or getattr(data, '_mip_failure', None): compare_results(data.time, data, results, str(target_dir / 'compare'), mip_gap=mip_gap, metas=metas, metrics_cache=metrics_cache, mip_failure=getattr(data, '_mip_failure', None), mip_best_bound=getattr(data, 'mip_best_bound', None))
 
         status.update(label="Optimization Complete! Schedules and analytics generated.", state="complete", expanded=False)
         st.session_state['active_run_dir'] = dataset_name
@@ -396,14 +311,10 @@ if app_mode == "🚀 Run Optimization" and btn_run:
 # Determine which directory to view
 active_dir_name = st.session_state.get('active_run_dir', dataset_name) if app_mode == "🚀 Run Optimization" else sel_run_dir
 
-if not active_dir_name:
-    st.info("👈 Select parameters in the sidebar and click **Start Scheduling**, or switch to **Explore Saved Runs** to inspect existing schedules.")
-    st.stop()
+if not active_dir_name: st.info("👈 Select parameters in the sidebar and click **Start Scheduling**, or switch to **Explore Saved Runs** to inspect existing schedules."); st.stop()
 
 view_dir = PROJECT_ROOT / 'output' / active_dir_name
-if not view_dir.exists():
-    st.info(f"No existing results found for **{active_dir_name.capitalize()}**. Click **Start Scheduling** in the sidebar to run optimization.")
-    st.stop()
+if not view_dir.exists(): st.info(f"No existing results found for **{active_dir_name.capitalize()}**. Click **Start Scheduling** in the sidebar to run optimization."); st.stop()
 
 
 # Load Run Data
@@ -413,11 +324,7 @@ summary_df = pd.read_csv(cmp_csv_path) if cmp_csv_path.exists() else pd.DataFram
 # ==========================================
 # TABS INTERFACE
 # ==========================================
-tab_summary, tab_gantt, tab_details = st.tabs([
-    "📊 Comparative Summary & KPIs",
-    "📅 Interactive Gantt Chart",
-    "🔍 Detailed Schedules & Tardy Lots"
-])
+tab_summary, tab_gantt, tab_details = st.tabs(["📊 Comparative Summary & KPIs", "📅 Interactive Gantt Chart", "🔍 Detailed Schedules & Tardy Lots"])
 
 # ----------------------------------------------------
 # TAB 1: SUMMARY & KPIS
@@ -457,8 +364,7 @@ with tab_summary:
 
         st.markdown("<br>", unsafe_allow_html=True)
         render_comparison_charts(summary_df)
-    else:
-        st.info(f"No comparison summary CSV found in `{view_dir / 'compare'}`.")
+    else: st.info(f"No comparison summary CSV found in `{view_dir / 'compare'}`.")
 
 
 # ----------------------------------------------------
@@ -468,8 +374,7 @@ with tab_gantt:
     st.markdown("### 📅 Production Floor Gantt Schedule")
     available_methods = [d.name for d in view_dir.iterdir() if d.is_dir() and d.name in ('best_greedy', 'roulette', 'lns', 'mip')]
     
-    if not available_methods:
-        st.warning("No schedule folders found in the active run directory.")
+    if not available_methods: st.warning("No schedule folders found in the active run directory.")
     else:
         labels_map = {'mip': 'MIP (Exact Solver)', 'best_greedy': 'Best Greedy Seed', 'roulette': 'G+Roulette Wheel', 'lns': 'G+Large Neighborhood Search'}
         sel_method = st.selectbox("Select Solution Method to Visualize", available_methods, format_func=lambda k: labels_map.get(k, k))
@@ -479,8 +384,7 @@ with tab_gantt:
 
         if gantt_files:
             # Read saved Plotly HTML and embed directly
-            with open(gantt_files[0], 'r', encoding='utf-8') as gf:
-                html_content = gf.read()
+            with open(gantt_files[0], 'r', encoding='utf-8') as gf: html_content = gf.read()
             st.caption(f"Displaying saved interactive Gantt chart: `{gantt_files[0].name}`")
             components.html(html_content, height=750, scrolling=True)
         else:
@@ -490,8 +394,7 @@ with tab_gantt:
                 df_sched = pd.read_csv(csv_files[0])
                 st.caption(f"Rendering schedule from `{csv_files[0].name}`")
                 dynamic_gantt(df_sched, f"Gantt Schedule: {labels_map.get(sel_method, sel_method)}")
-            else:
-                st.warning(f"No Gantt chart HTML or schedule CSV found in `{method_dir}`.")
+            else: st.warning(f"No Gantt chart HTML or schedule CSV found in `{method_dir}`.")
 
 
 # ----------------------------------------------------
@@ -521,10 +424,8 @@ with tab_details:
                 all_lots = ["All"] + sorted(df_full['lot ID'].dropna().astype(str).unique().tolist(), key=_nat_key)
                 sel_f_lot = st.selectbox("Filter by Lot ID", all_lots)
             with col_f2:
-                if m_col:
-                    all_mach = ["All"] + sorted(df_full[m_col].dropna().astype(str).unique().tolist(), key=_nat_key)
-                else:
-                    all_mach = ["All"]
+                if m_col: all_mach = ["All"] + sorted(df_full[m_col].dropna().astype(str).unique().tolist(), key=_nat_key)
+                else: all_mach = ["All"]
                 sel_f_mach = st.selectbox("Filter by Machine", all_mach)
             with col_f3:
                 all_prod = ["All"] + sorted(df_full['Product ID'].dropna().astype(str).unique().tolist(), key=_nat_key) if 'Product ID' in df_full.columns else ["All"]
@@ -543,13 +444,8 @@ with tab_details:
                 st.markdown("#### 🏭 Machine Workload Distribution (Hours)")
                 m_load = df_full.groupby(m_col)['Processing Time'].sum() / 3600.0
                 m_load = m_load.reindex(sorted(m_load.index, key=_nat_key))
-                fig_load = px.bar(
-                    x=m_load.index, y=m_load.values,
-                    labels={'x': 'Machine', 'y': 'Total Processing (Hours)'},
-                    title="<b>Machine Load Profile</b>", template="plotly_white"
-                )
+                fig_load = px.bar(x=m_load.index, y=m_load.values, labels={'x': 'Machine', 'y': 'Total Processing (Hours)'}, title="<b>Machine Load Profile</b>", template="plotly_white")
                 fig_load.update_layout(height=350, margin=dict(l=40, r=20, t=50, b=40))
                 st.plotly_chart(fig_load, use_container_width=True)
-        else:
-            st.info(f"No schedule CSV found in `{det_dir}`.")
+        else: st.info(f"No schedule CSV found in `{det_dir}`.")
 
