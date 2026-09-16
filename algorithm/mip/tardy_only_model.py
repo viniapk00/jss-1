@@ -13,8 +13,7 @@ class TardyOnlyModel:
         self.data, self.model, self.solution, self.solve_time = data, None, None, 0.0
         self.best_bound, self.node_count, self.mip_gap, self.obj_value = None, None, None, None
         self.proven_optimal, self.machines_schedule = False, {}
-        self.w, self.x, self.t = {}, {}, {}
-        self.y, self.C, self.z = {}, {}, {}
+        self.w, self.x, self.t, self.y, self.C, self.z = {}, {}, {}, {}, {}, {}
 
     def add_variables(self):
         D, H, m = self.data, self.data.H, self.model
@@ -33,8 +32,7 @@ class TardyOnlyModel:
         # y_a,b,m in {0, 1} : 1 if operation a precedes operation b on machine m
         for a, b, mach in D.pairwise_candidates:
             p1, o1, i1, p2, o2, i2, mtag = a[0], a[1], a[2], b[0], b[1], b[2], str(mach).replace('-', '_')
-            self.y[a, b, mach] = m.binary_var(name=f'y_{p1}_{o1}_{i1}_{p2}_{o2}_{i2}_{mtag}')
-            self.y[b, a, mach] = m.binary_var(name=f'y_{p2}_{o2}_{i2}_{p1}_{o1}_{i1}_{mtag}')
+            self.y[a, b, mach] = m.binary_var(name=f'y_{p1}_{o1}_{i1}_{p2}_{o2}_{i2}_{mtag}'); self.y[b, a, mach] = m.binary_var(name=f'y_{p2}_{o2}_{i2}_{p1}_{o1}_{i1}_{mtag}')
 
         for p in D.P:
             # c_p >= 0 : completion time of the last operation of lot p
@@ -52,8 +50,7 @@ class TardyOnlyModel:
         # (3) Machine ready time: t_a >= B_m - H(1 - x_a,m), forall a in A, m in M_a
         # (4) Lot release time (first operation): t_a >= R_p - H(1 - x_a,m), forall a=(p,o,1) in A, m in M_a
         for a in D.A:
-            p, o, i = a
-            w_po = self.w[p, o]
+            p, o, i = a; w_po = self.w[p, o]
             m.add_constraint(m.sum(self.x[a, mach] for mach in D.Ma[a]) == w_po)
             for mach in D.Ma[a]:
                 if D.Bm[mach] > 0: m.add_constraint(self.t[a] >= D.Bm[mach] - H * (1 - self.x[a, mach]))
@@ -74,8 +71,7 @@ class TardyOnlyModel:
             y12, y21, x1, x2, s12, s21 = self.y[a, b, mach], self.y[b, a, mach], self.x[a, mach], self.x[b, mach], D.S[a, b, mach], D.S[b, a, mach]
             m.add_constraint(y12 <= x1); m.add_constraint(y12 <= x2); m.add_constraint(y21 <= x1); m.add_constraint(y21 <= x2)
             m.add_constraint(y12 + y21 >= x1 + x2 - 1)
-            m.add_constraint(self.t[b] >= self.t[a] + D.Tam[a, mach] + s12 - H * (1 - y12))
-            m.add_constraint(self.t[a] >= self.t[b] + D.Tam[b, mach] + s21 - H * (1 - y21))
+            m.add_constraint(self.t[b] >= self.t[a] + D.Tam[a, mach] + s12 - H * (1 - y12)); m.add_constraint(self.t[a] >= self.t[b] + D.Tam[b, mach] + s21 - H * (1 - y21))
 
         for p in D.P:
             # (10) Completion time: c_p >= t_a + T_a,m - H(1 - x_a,m), forall p in P, o in O_p, a=(p,o,K_p,o), m in M_a
@@ -94,8 +90,7 @@ class TardyOnlyModel:
     def set_objective(self):
         D, m = self.data, self.model
         # min W_z * (sum_{p in P} U_p * z_p)
-        tardiness = m.sum(D.Up[p] * self.z[p] for p in D.P)
-        m.minimize(D.weight['tardy'] * tardiness)
+        m.minimize(D.weight['tardy'] * m.sum(D.Up[p] * self.z[p] for p in D.P))
 
     def build(self):
         self.model = Model(f'FJSP_{self.data.dataset_size}', ignore_names=False)

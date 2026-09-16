@@ -154,13 +154,9 @@ class BaseScheduler:
                     res_penalty = gateway_demand.get(machine, 0) if expected_future_move == 0 else 0
 
                     # Lexicographic sorting key for beam selection
-                    sorting_key = (round(estimated_objective, 4),not same_product,            # 1. Prefer machines currently set up for the same product
-                        setup_duration > 0,          # 2. Prefer 0 setup over setup switch
-                        total_moving_time + transport_duration + expected_future_move, # 3. Shortest cumulative transport
-                        res_penalty,                 # 4. Preserve multi-op gateway machines
-                        end_time,                    # 5. Earlier completion
-                        total_setup_time + setup_duration,
-                        next_path)
+                    # 1. Prefer machines currently set up for the same product, 2. Prefer 0 setup over setup switch
+                    # 3. Shortest cumulative transport, 4. Preserve multi-op gateway machines, 5. Earlier completion
+                    sorting_key = (round(estimated_objective, 4), not same_product, setup_duration > 0, total_moving_time + transport_duration + expected_future_move, res_penalty, end_time, total_setup_time + setup_duration, next_path)
                     expanded_routes.append((sorting_key, end_time, machine, total_moving_time + transport_duration, total_setup_time + setup_duration, total_processing_time + process_duration, next_path, next_availability, next_predecessor, next_operations))
 
             # Prune expanded candidates to top beam_limit paths
