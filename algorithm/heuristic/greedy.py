@@ -154,7 +154,7 @@ class BaseScheduler:
                     res_penalty = gateway_demand.get(machine, 0) if expected_future_move == 0 else 0
 
                     # Lexicographic sorting key for beam selection
-                    sorting_key = (round(estimated_objective, 4), not same_product,            # 1. Prefer machines currently set up for the same product
+                    sorting_key = (round(estimated_objective, 4),not same_product,            # 1. Prefer machines currently set up for the same product
                         setup_duration > 0,          # 2. Prefer 0 setup over setup switch
                         total_moving_time + transport_duration + expected_future_move, # 3. Shortest cumulative transport
                         res_penalty,                 # 4. Preserve multi-op gateway machines
