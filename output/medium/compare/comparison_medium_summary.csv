@@ -14,8 +14,8 @@ Makespan,129:21:00,129:21:00,129:21:00
 Schedule Span,121:21:00,121:21:00,121:21:00
 Tardiness,227:14:20,227:14:20,227:14:20
 Tardy Lots,6,6,6
-Objective,4139780.0,4139780.0,4139780.0
-Solve Time,7.12s,28.42s,73.27s
+Objective,4188206.0,4188206.0,4188206.0
+Solve Time,3.95s,13.95s,28.16s
 Number of Iterations,2,100,100
 Best Iteration Found,1,0,0
 Number of Updates,0,0,0

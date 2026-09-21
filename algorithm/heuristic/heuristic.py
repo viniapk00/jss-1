@@ -90,10 +90,11 @@ class IterativeScheduler:
         evaluation_cache = {tuple(current_lot_order): (float(_current_obj),)}; accepted_orders = {tuple(current_lot_order)}
         best_frame, current_quality = current_frame, (float(_current_obj),)
         best_quality = current_quality
-        temperature = max(1.0, abs(seed_objective) * 0.005)
+        temperature = max(10.0, abs(seed_objective) * 0.0001)
 
         print(f"\n  [Roulette - {iterations} iterations, Block-Level Roulette + Intra-Block Dispatching]")
         for iteration_index in range(1, iterations + 1):
+            if iteration_index - best_iteration > 15 and best_lot_order != current_lot_order: current_lot_order, current_quality, current_frame = list(best_lot_order), best_quality, best_frame; lot_end_times = current_frame.groupby('lot ID')['End Time (sec)'].max().to_dict()
             candidates_to_test = []
 
             if data.actual_setup:
@@ -107,8 +108,10 @@ class IterativeScheduler:
                     else: curr_block.append(l)
                 if curr_block: blocks.append((curr_prod, curr_block))
 
-                # 2. Compute weighted tardiness for each product block
-                block_weights = [sum(data.Up.get(l, 1.0) * max(0.0, lot_end_times.get(l, 0.0) - delay_due[l]) for l in blk_lots) for _p, blk_lots in blocks]
+                # 2. Compute block weights combining weighted tardiness, changeover setup duration, and product fragmentation
+                prod_counts = {p: sum(1 for bp, _ in blocks if bp == p) for p, _ in blocks}
+                lot_setups = current_frame.groupby('lot ID')['Setup Time'].sum().to_dict() if 'Setup Time' in current_frame.columns else {}
+                block_weights = [sum(data.Up.get(l, 1.0) * max(0.0, lot_end_times.get(l, 0.0) - delay_due[l]) + lot_setups.get(l, 0.0) for l in blk_lots) + 1800.0 * (prod_counts.get(_p, 1) - 1) + 1.0 for _p, blk_lots in blocks]
 
                 total_bw = sum(block_weights)
                 if len(blocks) > 1:
@@ -120,12 +123,22 @@ class IterativeScheduler:
                         shifted.insert(target_idx, shifted.pop(chosen_idx))
                         candidates_to_test.append([l for _, b in shifted for l in b])
 
-                    # Proposal B: Block Swap (swap chosen block with an earlier block)
+                    # Proposal B: Block Swap (swap chosen block with another block)
                     swap_target, swapped = (random_generator.randint(0, chosen_idx - 1) if chosen_idx > 0 else random_generator.randint(1, len(blocks) - 1)), list(blocks)
                     swapped[chosen_idx], swapped[swap_target] = swapped[swap_target], swapped[chosen_idx]
                     candidates_to_test.append([l for _, b in swapped for l in b])
 
-                # Proposal C: Intra-Block Dispatching (EDD & SPT within each family block - 0 setup penalty!)
+                    # Proposal C: Product Block Consolidation (merge fragmented blocks of same product to avoid setup changeovers)
+                    frag_prods = [p for p, c in prod_counts.items() if c > 1]
+                    for p_sel in random_generator.sample(frag_prods, min(len(frag_prods), 2)):
+                        p_idxs = [i for i, (p, _) in enumerate(blocks) if p == p_sel]
+                        if len(p_idxs) >= 2:
+                            s_idx, t_idx = random_generator.sample(p_idxs, 2)
+                            for adj_pos in ([t_idx if t_idx < s_idx else t_idx - 1, (t_idx if t_idx < s_idx else t_idx - 1) + 1]):
+                                c_blks = list(blocks); blk = c_blks.pop(s_idx); c_blks.insert(max(0, min(len(c_blks), adj_pos)), blk)
+                                candidates_to_test.append([l for _, b in c_blks for l in b])
+
+                # Proposal D: Intra-Block Dispatching (EDD & SPT within each family block - 0 setup penalty!)
                 edd_blocks = [(p_id, sorted(blk_lots, key=lambda l: (data.Dp.get(l, 0), dispatch_ratio[l], str(l)))) for p_id, blk_lots in blocks]
                 candidates_to_test.append([l for _, b in edd_blocks for l in b])
 
@@ -224,11 +237,12 @@ class IterativeScheduler:
         evaluation_cache = {tuple(current_lot_order): (float(_current_obj),)}; accepted_orders = {tuple(current_lot_order)}
         best_frame, current_quality = current_frame, (float(_current_obj),)
         best_quality = current_quality
-        temperature = max(1.0, abs(seed_objective) * 0.005)
+        temperature = max(10.0, abs(seed_objective) * 0.0001)
 
         print(f"\n  [LNS - {iterations} iterations, deep block ruin-and-recreate]")
 
         for iteration_index in range(1, iterations + 1):
+            if iteration_index - best_iteration > 15 and best_lot_order != current_lot_order: current_lot_order, current_quality, current_frame = list(best_lot_order), best_quality, best_frame; lot_end_times = current_frame.groupby('lot ID')['End Time (sec)'].max().to_dict()
             repair_candidates = []
 
             if data.actual_setup:
@@ -242,8 +256,10 @@ class IterativeScheduler:
                     else: curr_b.append(l)
                 if curr_b: blocks.append((curr_p, curr_b))
 
-                # 2. Compute block tardiness weights
-                block_weights = [sum(data.Up.get(l, 1.0) * max(0.0, lot_end_times.get(l, 0.0) - delay_due[l]) for l in blk_lots) for _p, blk_lots in blocks]
+                # 2. Compute block weights combining weighted tardiness, changeover setup duration, and product fragmentation
+                prod_counts = {p: sum(1 for bp, _ in blocks if bp == p) for p, _ in blocks}
+                lot_setups = current_frame.groupby('lot ID')['Setup Time'].sum().to_dict() if 'Setup Time' in current_frame.columns else {}
+                block_weights = [sum(data.Up.get(l, 1.0) * max(0.0, lot_end_times.get(l, 0.0) - delay_due[l]) + lot_setups.get(l, 0.0) for l in blk_lots) + 1800.0 * (prod_counts.get(_p, 1) - 1) + 1.0 for _p, blk_lots in blocks]
 
                 total_bw = sum(block_weights)
                 if len(blocks) > 1:
@@ -263,13 +279,16 @@ class IterativeScheduler:
                     repair_candidates.append([l for _, b in swapped_blocks for l in b])
 
                     # --- CANDIDATE 3: Product Family Consolidation (Setup & Idle Time Reduction) ---
-                    same_prod_indices = [i for i, (p, _) in enumerate(blocks) if p == p_chosen and i != chosen_tardy_idx]
-                    if same_prod_indices:
-                        target_same, consol_blocks = random_generator.choice(same_prod_indices), list(blocks)
-                        blk = consol_blocks.pop(chosen_tardy_idx)
-                        adj_target = target_same if target_same < chosen_tardy_idx else target_same - 1
-                        ins_pos = max(0, min(len(consol_blocks), adj_target if random_generator.random() < 0.5 else adj_target + 1))
-                        consol_blocks.insert(ins_pos, blk); repair_candidates.append([l for _, b in consol_blocks for l in b])
+                    frag_prods = [p for p, c in prod_counts.items() if c > 1]
+                    p_target = p_chosen if prod_counts.get(p_chosen, 0) > 1 else (random_generator.choice(frag_prods) if frag_prods else None)
+                    if p_target:
+                        p_indices = [i for i, (p, _) in enumerate(blocks) if p == p_target]
+                        if len(p_indices) >= 2:
+                            s_idx, t_idx = random_generator.sample(p_indices, 2)
+                            for adj_target in ([t_idx if t_idx < s_idx else t_idx - 1, (t_idx if t_idx < s_idx else t_idx - 1) + 1]):
+                                consol_blocks = list(blocks); blk = consol_blocks.pop(s_idx)
+                                consol_blocks.insert(max(0, min(len(consol_blocks), adj_target)), blk)
+                                repair_candidates.append([l for _, b in consol_blocks for l in b])
                     elif chosen_tardy_idx > 1:
                         # Deep Leapfrog to mid-schedule
                         deep_idx, deep_blocks = chosen_tardy_idx // 2, list(blocks)
@@ -404,12 +423,18 @@ class IterativeScheduler:
         scheduler.schedule(order, output=True)
         for sweep in range(2):
             ends = frame.groupby('lot ID')['End Time (sec)'].max().to_dict()
-            critical = sorted(order, key=lambda lot: (-data.Up.get(lot, 1.0) * max(0.0, ends[lot] - self.delay_due[lot]), -data.Up.get(lot, 1.0) * max(0.0, ends[lot] - data.Dp.get(lot, 0.0))))[:8]
+            setups = frame.groupby('lot ID')['Setup Time'].sum().to_dict() if data.actual_setup and 'Setup Time' in frame.columns else {}
+            tardy_crit = sorted(order, key=lambda lot: (-data.Up.get(lot, 1.0) * max(0.0, ends[lot] - self.delay_due[lot]), -data.Up.get(lot, 1.0) * max(0.0, ends[lot] - data.Dp.get(lot, 0.0))))[:8]
+            setup_crit = sorted(order, key=lambda lot: -setups.get(lot, 0.0))[:8] if data.actual_setup else []
+            critical = list(dict.fromkeys(tardy_crit + setup_crit))
             changed, sweeps = False, sweep + 1
             for lot in critical:
                 index = order.index(lot); remaining = order[:index] + order[index + 1:]
                 machines = set(frame.loc[frame['lot ID'] == lot, 'Machine ID']); related = set(frame.loc[frame['Machine ID'].isin(machines), 'lot ID'])
-                positions = sorted({0, len(remaining), max(0, index - 1), min(len(remaining), index + 1)} | {i for i, item in enumerate(order) if item in related} | {i * (len(order) - 1) // 15 for i in range(16)})
+                lot_prod = data.product.get(lot)
+                same_prod_pos = {i for i, item in enumerate(remaining) if data.product.get(item) == lot_prod} if data.actual_setup else set()
+                same_prod_pos |= {i + 1 for i in same_prod_pos}
+                positions = sorted({0, len(remaining), max(0, index - 1), min(len(remaining), index + 1)} | {i for i, item in enumerate(remaining) if item in related} | same_prod_pos | {i * (len(order) - 1) // 15 for i in range(16)})
                 best_quality, best_order = (float(objective),), order
                 for position in positions:
                     candidate = remaining[:position] + [lot] + remaining[position:]; key = tuple(candidate)
@@ -424,13 +449,15 @@ class IterativeScheduler:
         return frame, float(objective), order, updates, sweeps
 
     def _refine_routes(self, scheduler, frame, objective, order):
-        data, updates, budget = self.data, 0, 48
+        data, updates = self.data, 0
         scheduler.route_choices = dict(frame.attrs.get('route_choices', {}))
         ends = frame.groupby('lot ID')['End Time (sec)'].max().to_dict()
         critical = sorted(order, key=lambda lot: (-data.Up.get(lot, 1.0) * max(0.0, ends[lot] - self.delay_due[lot]), -data.Up.get(lot, 1.0) * max(0.0, ends[lot] - data.Dp.get(lot, 0.0))))[:16]
         tardy_machines = set(frame.loc[frame['lot ID'].isin(critical[:8]), 'Machine ID'])
         congesting_lots = list(frame.loc[frame['Machine ID'].isin(tardy_machines), 'lot ID'].unique())
-        search_lots = list(dict.fromkeys(critical + congesting_lots))
+        setup_lots = list(frame.loc[frame['Setup Time'] > 0, 'lot ID'].unique()) if data.actual_setup and 'Setup Time' in frame.columns else []
+        search_lots = list(dict.fromkeys(critical[:8] + setup_lots + critical[8:] + congesting_lots))
+        budget = max(96, len(search_lots) * 2)
         for lot in search_lots:
             candidates = self._route_candidates(frame, lot)
             best_choice, best_value = scheduler.route_choices.get(lot), objective
@@ -447,7 +474,8 @@ class IterativeScheduler:
     def _route_step(self, scheduler, frame, order, quality, rng, temperature):
         data = self.data
         ends = frame.groupby('lot ID')['End Time (sec)'].max().to_dict()
-        delays = {lot: data.Up.get(lot, 1.0) * max(0.0, ends[lot] - self.delay_due[lot]) for lot in order}
+        lot_setups = frame.groupby('lot ID')['Setup Time'].sum().to_dict() if data.actual_setup and 'Setup Time' in frame.columns else {}
+        delays = {lot: data.Up.get(lot, 1.0) * max(0.0, ends[lot] - self.delay_due[lot]) + lot_setups.get(lot, 0.0) for lot in order}
         machine_pressure = {}
         for lot, machine in frame[['lot ID', 'Machine ID']].itertuples(index=False, name=None): machine_pressure[machine] = machine_pressure.get(machine, 0.0) + delays[lot]
         assigned = frame.groupby('lot ID')['Machine ID'].agg(set).to_dict()
