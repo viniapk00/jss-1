@@ -27,8 +27,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument('--input-root')
     parser.add_argument('--parameter-file')
     parser.add_argument('--iterations', type=int)
-    parser.add_argument('--lns-destroy-pct', type=float)
-    parser.add_argument('--route-limit', type=int)
+    parser.add_argument('--route-limit', type=int, help='Greedy beam width (minimum/default: 64)')
     parser.add_argument('--time-limit', type=float)
     parser.add_argument('--threads', type=int)
     return parser
@@ -54,8 +53,7 @@ def _configure(args):
     config['solver_seed'] = args.seed
 
     if args.iterations is not None: config['iterations'] = max(1, args.iterations)
-    if args.lns_destroy_pct is not None: config['lns_destroy_pct'] = max(0.1, min(100.0, args.lns_destroy_pct))
-    if args.route_limit is not None: config['greedy_route_limit'] = max(1, args.route_limit)
+    if args.route_limit is not None: config['greedy_route_limit'] = max(64, args.route_limit)
     if args.time_limit is not None:
         if args.time_limit <= 0: raise ValueError('--time-limit must be positive')
         config['time_limit_seconds'] = float(args.time_limit)

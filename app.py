@@ -16,7 +16,7 @@ import plotly.express as px
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path: sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.preprocessing import ConfigLoader, DataPreprocessor, OBJECTIVES, load_objective_class
+from utils.preprocessing import ConfigLoader, DataPreprocessor, load_objective_class
 from utils.result_saver import (assert_schedule_feasible, compare_results, save_heuristic_results, schedule_metrics, write_run_manifest, build_gantt_figure)
 from main import _run_mip
 
@@ -189,7 +189,7 @@ if app_mode == "🚀 Run Optimization":
         p_seed = st.number_input("Random Seed", value=42, step=1)
         p_iters = st.number_input("Heuristic Iterations", value=100, step=10, min_value=1)
         p_time_limit = st.number_input("MIP Time Limit (sec)", value=600.0, step=60.0, min_value=5.0)
-        p_route_limit = st.number_input("Greedy Route Limit", value=5, step=1, min_value=1)
+        p_route_limit = st.number_input("Greedy Route Limit", value=64, step=1, min_value=64)
         p_threads = st.number_input("CPU Threads (0=Auto)", value=0, step=1, min_value=0)
 
     btn_run = st.sidebar.button("▶️ Start Scheduling", type="primary", use_container_width=True)
@@ -375,7 +375,7 @@ with tab_gantt:
     available_methods = [d.name for d in view_dir.iterdir() if d.is_dir() and d.name in ('best_greedy', 'roulette', 'lns', 'mip')]
     
     if not available_methods: st.warning("No schedule folders found in the active run directory.")
-    else:
+    elif st.checkbox("Show Gantt chart", key=f"show_gantt_{view_dir}"):
         labels_map = {'mip': 'MIP (Exact Solver)', 'best_greedy': 'Best Greedy Seed', 'roulette': 'G+Roulette Wheel', 'lns': 'G+Large Neighborhood Search'}
         sel_method = st.selectbox("Select Solution Method to Visualize", available_methods, format_func=lambda k: labels_map.get(k, k))
 

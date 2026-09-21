@@ -8,7 +8,7 @@ import re
 import sys
 import pandas as pd
 
-from utils.preprocessing import (col_end, col_job, col_pri, col_start, objective_evaluator, seconds_per_day, tardiness_seconds,)
+from utils.preprocessing import (col_end, col_job, col_pri, col_start, objective_evaluator, tardiness_seconds,)
 
 TARDY_EPS = 1e-6
 
@@ -309,11 +309,11 @@ def build_gantt_figure(tc, schedule_df, machine_line=None, tag='', data=None):
 
 def save_gantt_chart(tc, results_dir, schedule_df, machine_line, tag, data=None):
     """Generate and save interactive Plotly Gantt chart HTML."""
+    path = os.path.join(results_dir, f'gantt_{tag}.html')
     if schedule_df is None or schedule_df.empty: return None
     fig = build_gantt_figure(tc, schedule_df, machine_line=machine_line, tag=tag, data=data)
     if fig is None: return None
     os.makedirs(results_dir, exist_ok=True)
-    path = os.path.join(results_dir, f'gantt_{tag}.html')
     fig.write_html(path, include_plotlyjs='cdn')
     print(f"  Gantt chart saved: {path}")
     return path
@@ -540,8 +540,9 @@ def comparison_summary(tc, data, results, cmp_dir, mip_gap=None, metas=None, met
         if mip_gap is not None and abs(mip_gap) <= 1e-6: bound = exact_objs['mip']
         elif mip_gap is not None and mip_gap < 100.0: bound = exact_objs['mip'] * (1.0 - mip_gap / 100.0)
 
+    mip_benchmark = exact_objs.get('mip')
     # Fallback: check for previously saved MIP summary on disk if bound is not in memory
-    if bound is None and hasattr(data, 'dataset_size'):
+    if hasattr(data, 'dataset_size'):
         dataset_dir = os.path.dirname(cmp_dir)
         mip_dir = os.path.join(dataset_dir, 'mip')
         if os.path.isdir(mip_dir):
@@ -549,18 +550,16 @@ def comparison_summary(tc, data, results, cmp_dir, mip_gap=None, metas=None, met
                 if fname.startswith(f'summary_{data.dataset_size}_mip_') and fname.endswith('.csv'):
                     try:
                         sdf = pd.read_csv(os.path.join(mip_dir, fname))
-                        if 'best_bound' in sdf.columns and pd.notna(sdf['best_bound'].iloc[0]):
-                            bound = float(sdf['best_bound'].iloc[0])
-                            break
-                        elif 'objective' in sdf.columns and 'gap_pct' in sdf.columns:
-                            m_obj = float(sdf['objective'].iloc[0])
-                            m_gap = float(sdf['gap_pct'].iloc[0]) if pd.notna(sdf['gap_pct'].iloc[0]) else 0.0
+                        if mip_benchmark is None and 'objective' in sdf.columns and pd.notna(sdf['objective'].iloc[0]): mip_benchmark = float(sdf['objective'].iloc[0])
+                        if bound is None and 'best_bound' in sdf.columns and pd.notna(sdf['best_bound'].iloc[0]): bound = float(sdf['best_bound'].iloc[0])
+                        elif bound is None and 'objective' in sdf.columns and 'gap_pct' in sdf.columns:
+                            m_obj = float(sdf['objective'].iloc[0]); m_gap = float(sdf['gap_pct'].iloc[0]) if pd.notna(sdf['gap_pct'].iloc[0]) else 0.0
                             bound = m_obj * (1.0 - m_gap / 100.0)
-                            break
+                        if bound is not None and mip_benchmark is not None: break
                     except Exception: pass
 
-    # Calculate MIP Gap (%) for each method: (Obj - BestBound) / |Obj| * 100%
-    has_gap_info = (mip_gap is not None) or (bound is not None)
+    # Calculate MIP Gap (%) for each method
+    has_gap_info = (mip_gap is not None) or (bound is not None) or (mip_benchmark is not None)
     gap_values = {}
     if has_gap_info:
         for n in results:
@@ -572,9 +571,10 @@ def comparison_summary(tc, data, results, cmp_dir, mip_gap=None, metas=None, met
                     gap_values[n] = f'{val:.2f}%'
                 else: gap_values[n] = '-'
             else:
-                if bound is not None and n in exact_objs:
-                    diff = exact_objs[n] - bound
-                    val = 0.0 if diff <= 1e-6 else (diff / max(1e-12, abs(exact_objs[n]))) * 100.0
+                benchmark = mip_benchmark if mip_benchmark is not None else bound
+                if benchmark is not None and n in exact_objs:
+                    diff = exact_objs[n] - benchmark
+                    val = 0.0 if diff <= 1e-6 else (diff / max(1e-12, abs(benchmark))) * 100.0
                     gap_values[n] = f'{val:.2f}%'
                 else: gap_values[n] = '-'
 

@@ -1,2 +1,2 @@
 ﻿method,objective,objective_per_lot,weighted_tardiness,moving_seconds,setup_seconds,product_machine_pairs,transition_seconds,processing_seconds,total_time_seconds,average_flowtime_seconds,total_time_component,makespan_component,tardy_lots,tardy_lot_pct,makespan_seconds,schedule_span_seconds,solve_time,lots,jobs,dataset,objective_type,start_date
-roulette,6299815.0,78747.6875,3751780.0,1860.0,7200.0,20,9060.0,2538975.0,2548035.0,145902.125,2548035.0,0.0,4,5.0,465660.0,436860.0,1.1674523000256158,80,90,medium,tardy_total_time,01/01/2026
+roulette,4139780.0,51747.25,4139780.0,1860.0,30600.0,25,32460.0,2538975.0,2571435.0,135243.375,0.0,0.0,6,7.5,465660.0,436860.0,28.418992399936542,80,90,medium,tardy_only,01/01/2026

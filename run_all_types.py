@@ -28,8 +28,7 @@ def _build_parser(default_solver='cplex', allow_solver_override=True):
     parser.add_argument('--stop-on-error', action='store_true')
     if allow_solver_override: parser.add_argument('--solver', choices=['cplex', 'gurobi'], default=default_solver)
     parser.add_argument('--iterations', type=int)
-    parser.add_argument('--lns-destroy-pct', type=float)
-    parser.add_argument('--route-limit', type=int)
+    parser.add_argument('--route-limit', type=int, help='Greedy beam width (minimum/default: 64)')
     parser.add_argument('--input-root')
     parser.add_argument('--python-executable')
     return parser
@@ -63,7 +62,7 @@ def main(default_solver='cplex', allow_solver_override=True):
         print(f"\n{'=' * 80}\nRUN TYPE: {type_key} | dataset={dataset} | mode={args.mode} | solver={solver.upper()}\n{'=' * 80}", flush=True)
         started = time.perf_counter()
         command = [python_exe, main_file, '--objective', type_key, '--solver', solver, '--dataset', args.dataset, '--mode', args.mode, '--seed', str(args.seed), '--output', type_out, '--input-root', input_root, '--parameter-file', parameter_file,]
-        for flag, value in (('--iterations', args.iterations), ('--lns-destroy-pct', args.lns_destroy_pct), ('--route-limit', args.route_limit)):
+        for flag, value in (('--iterations', args.iterations), ('--route-limit', args.route_limit)):
             if value is not None: command.extend([flag, str(value)])
 
         code = int(subprocess.run(command, cwd=root, env=child_env).returncode)

@@ -1,6 +1,5 @@
 """Shared data loading, objective evaluation, and FJSP preprocessing."""
 from importlib import import_module
-from itertools import product as cartesian_product
 import math
 import os
 from types import MappingProxyType, SimpleNamespace
@@ -133,8 +132,8 @@ class ConfigLoader:
                 selected.sort_values('_scope_order', inplace=True)
             else: selected = df.copy()
 
-            int_keys = {'vertical_move_time', 'horizontal_move_time', 'iterations', 'time_limit_seconds', 'lns_destroy_pct', 'cplex_threads', 'gurobi_threads', 'greedy_route_limit', 'greedy_repair_passes', 'greedy_repair_checks'}
-            float_keys = {'roulette_w_priority', 'roulette_w_due', 'mip_gap', 'objective_weight_tardy', 'objective_weight_move', 'objective_weight_setup', 'objective_weight_makespan', 'objective_weight_total_time'}
+            int_keys = {'vertical_move_time', 'horizontal_move_time', 'iterations', 'time_limit_seconds', 'cplex_threads', 'gurobi_threads', 'greedy_route_limit'}
+            float_keys = {'mip_gap', 'objective_weight_tardy', 'objective_weight_move', 'objective_weight_setup', 'objective_weight_makespan', 'objective_weight_total_time'}
             config = {}
             for k, v in zip(selected['Parameter'], selected['Value']):
                 k, v = str(k).strip(), str(v).strip()
@@ -147,8 +146,9 @@ class ConfigLoader:
                 if obj not in OBJECTIVES: raise ValueError(f'unknown objective {obj!r}; expected {sorted(OBJECTIVES)}')
                 config['objective_type'] = obj
 
-            defaults = {'lns_destroy_pct': 10, 'roulette_w_priority': 1.0, 'roulette_w_due': 1.0, 'mip_gap': 0.0, 'cplex_threads': 8, 'gurobi_threads': 8, 'greedy_route_limit': 5, 'greedy_repair_passes': 8, 'greedy_repair_checks': 32, 'objective_weight_tardy': 1.0, 'objective_weight_move': 1.0, 'objective_weight_setup': 1.0, 'objective_weight_makespan': 0.1, 'objective_weight_total_time': 1.0,}
+            defaults = {'mip_gap': 0.0, 'cplex_threads': 8, 'gurobi_threads': 8, 'greedy_route_limit': 64, 'objective_weight_tardy': 1.0, 'objective_weight_move': 1.0, 'objective_weight_setup': 1.0, 'objective_weight_makespan': 0.1, 'objective_weight_total_time': 1.0,}
             for k, v in defaults.items(): config.setdefault(k, v)
+            config['greedy_route_limit'] = max(64, config['greedy_route_limit'])
 
             for key, def_name in {'input_dir': 'input', 'output_dir': 'output'}.items():
                 val = str(config.get(key, '')).strip() or def_name
@@ -579,7 +579,7 @@ class DataPreprocessor:
 
         
 
-        self.greedy_state = SimpleNamespace(route_limit=max(1, int(float(self.config.get('greedy_route_limit', 5)))), machines=machines, machine_index=m_index, initial_availability=np.array([self.Bm.get(m, 0) for m in machines], dtype=float), priority_scores=(11.0 - lots['Priority']).clip(1, 10).reindex(self.P).to_numpy(), due_scores=due_score.reindex(self.P).to_numpy(), option_meta=option_meta, gateway_demand=gateway_demand, Pp=Pp, Rp=Rp, Dp=Dp, Up=Up, slack=slack, mean_p=mean_p, atc_order=atc_order, objective=objective_evaluator(self.config),)
+        self.greedy_state = SimpleNamespace(route_limit=max(64, int(float(self.config.get('greedy_route_limit', 64)))), machines=machines, machine_index=m_index, initial_availability=np.array([self.Bm.get(m, 0) for m in machines], dtype=float), priority_scores=(11.0 - lots['Priority']).clip(1, 10).reindex(self.P).to_numpy(), due_scores=due_score.reindex(self.P).to_numpy(), option_meta=option_meta, gateway_demand=gateway_demand, Pp=Pp, Rp=Rp, Dp=Dp, Up=Up, slack=slack, mean_p=mean_p, atc_order=atc_order, objective=objective_evaluator(self.config),)
         self.greedy_data = self.greedy_state
 
     def run_pipeline(self, choice):

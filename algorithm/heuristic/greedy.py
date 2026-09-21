@@ -1,5 +1,5 @@
 """Deterministic Greedy scheduling, multi-strategy dispatching, and targeted repairs."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
@@ -10,7 +10,8 @@ from utils.preprocessing import col_end, col_job, col_pri, col_start, tardiness_
 class BaseScheduler:
     data: object
     state: object
-    machine_preference: dict = None
+    cache_prefix: bool = False
+    route_choices: dict = field(default_factory=dict)
 
     def lot_order(self, weights=None, family_batch=None):
         """Rank lots with global product clustering and urgency lookahead.
@@ -49,13 +50,11 @@ class BaseScheduler:
 
             # Assign product family to a discrete time bucket (horizon)
             urgency_bucket = minimum_due_date // horizon
-            product_urgency[product_id] = (
-                urgency_bucket,     # Primary: Time bucket (e.g. 48-hour window)
+            product_urgency[product_id] = (urgency_bucket,     # Primary: Time bucket (e.g. 48-hour window)
                 -total_prod_move,   # Secondary: High-transport product groups prioritized
                 -max_ops,           # Tertiary: Multi-operation routes scheduled early
                 -maximum_score,     # Quaternary: Highest urgency score inside cluster
-                minimum_due_date    # Quinary: Earliest individual due date
-            )
+                minimum_due_date)    # Quinary: Earliest individual due date
 
         # Sort product families by their multi-attribute urgency profile
         sorted_products = sorted(product_to_lots.keys(), key=lambda prod: product_urgency[prod])
@@ -77,6 +76,10 @@ class BaseScheduler:
         if fixed_option > 0 and (lot, fixed_option) not in state.option_meta: raise ValueError(f'Lot {lot} fixed_option={fixed_option} is infeasible')
 
         available_options = [fixed_option] if fixed_option > 0 else [opt for opt in data.Op.get(lot, []) if (lot, opt) in state.option_meta]
+        if lot in self.route_choices:
+            selected_option = self.route_choices[lot][0]
+            if selected_option not in available_options: raise ValueError(f'Invalid route option for lot {lot}: {selected_option}')
+            available_options = [selected_option]
         if not available_options: return float('inf'), None, None
 
         due_date, priority, best_candidate = data.Dp.get(lot, float('inf')), data.Up.get(lot, 1.0), None
@@ -106,6 +109,8 @@ class BaseScheduler:
         meta_entry = state.option_meta[lot, option]
         gateway_demand, beam_limit = getattr(state, 'gateway_demand', {}), max(64, getattr(state, 'route_limit', 64))
         jobs, suffix_remaining, touched_machines, local_machine_index = meta_entry[:4]
+        chosen_path = self.route_choices.get(lot, (option, None))[1]
+        if chosen_path is not None and (len(chosen_path) != len(jobs) or any(machine not in job[1] for machine, job in zip(chosen_path, jobs))): raise ValueError(f'Invalid machine path for lot {lot}')
         future_move_maps = meta_entry[4] if len(meta_entry) > 4 else [{} for discard_job in jobs]
         current_product, touched_machine_list = data.product.get(lot, ''), list(touched_machines)
         local_availability, local_predecessor = availability[touched_machine_list], last_operation[touched_machine_list]
@@ -118,6 +123,7 @@ class BaseScheduler:
         for job_position, (job_sequence, eligible_machines) in enumerate(jobs):
             operation_key, remaining_suffix_time = (lot, option, job_sequence), suffix_remaining[job_position]
             future_move_map = future_move_maps[job_position]
+            if chosen_path is not None: eligible_machines = (chosen_path[job_position],)
             candidate_machines = tuple((machine, local_machine_index[state.machine_index[machine]], data.Tam[operation_key + (machine,)]) for machine in eligible_machines)
             expanded_routes, has_next_job = [], job_position + 1 < len(jobs)
 
@@ -160,8 +166,8 @@ class BaseScheduler:
                     expanded_routes.append((sorting_key, end_time, machine, total_moving_time + transport_duration, total_setup_time + setup_duration, total_processing_time + process_duration, next_path, next_availability, next_predecessor, next_operations))
 
             # Prune expanded candidates to top beam_limit paths
-            expanded_routes.sort(key=lambda route_item: route_item[0])
-            routes = [route_item[1:] for route_item in expanded_routes[:beam_limit]]
+            if has_next_job: expanded_routes.sort(key=lambda route_item: route_item[0])
+            routes = [route_item[1:] for route_item in expanded_routes[:beam_limit]] if has_next_job else [min(expanded_routes, key=lambda route_item: route_item[0])[1:]]
 
         # Select the winning path from the beam search
         (final_end_time, _discarded_machine, final_move_time, final_setup_time, final_proc_time, _discarded_path, _discarded_availability, _discarded_predecessor, scheduled_operations) = routes[0]
@@ -186,9 +192,18 @@ class BaseScheduler:
 
         # Objective tracking context
         context = {'weighted_tardiness': 0.0, 'movement_seconds': 0.0, 'setup_seconds': 0.0, 'makespan_seconds': 0.0, 'processing_seconds': 0.0}
-        schedule_rows = []
+        schedule_rows, prefix_length = [], 0
+        cache_key = (id(state), id(state.objective), data.actual_setup, getattr(state, 'route_limit', 64), tuple(sorted(self.route_choices.items())))
+        if self.cache_prefix and not output and getattr(self, '_prefix_key', None) == cache_key:
+            for previous, current in zip(self._prefix_order, order):
+                if previous != current: break
+                prefix_length += 1
+            if prefix_length:
+                saved_availability, saved_predecessor, saved_context = self._prefix_states[prefix_length - 1]
+                availability, last_operation, context = saved_availability.copy(), saved_predecessor.copy(), saved_context.copy()
+        prefix_states = []
 
-        for lot in order:
+        for lot in order[prefix_length:]:
             _option_score, chosen_option, operations = self.option_mapping(lot, availability, last_operation, context)
             if chosen_option is None: raise RuntimeError(f'Greedy decoder found no feasible option for lot {lot}')
 
@@ -206,7 +221,12 @@ class BaseScheduler:
             context['setup_seconds'] += sum(float(op[3]) for op in operations)
             context['processing_seconds'] += sum(float(op[5]) for op in operations)
             context['makespan_seconds'] = max(context['makespan_seconds'], lot_completion_time)
+            if self.cache_prefix and output: prefix_states.append((availability.copy(), last_operation.copy(), context.copy()))
 
+        if self.cache_prefix and output: self._prefix_key, self._prefix_order, self._prefix_states = cache_key, tuple(order), prefix_states
         total_objective = state.objective(context['weighted_tardiness'], context['movement_seconds'], context['setup_seconds'], context['makespan_seconds'], context['processing_seconds'],)
 
-        return (pd.DataFrame(schedule_rows), total_objective, (availability, last_operation)) if output else (total_objective,)
+        if not output: return (total_objective,)
+        frame = pd.DataFrame(schedule_rows)
+        if self.route_choices: frame.attrs['route_choices'] = dict(self.route_choices)
+        return frame, total_objective, (availability, last_operation)

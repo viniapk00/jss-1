@@ -1,2 +1,2 @@
 ﻿method,objective,objective_per_lot,weighted_tardiness,moving_seconds,setup_seconds,product_machine_pairs,transition_seconds,processing_seconds,total_time_seconds,average_flowtime_seconds,total_time_component,makespan_component,tardy_lots,tardy_lot_pct,makespan_seconds,schedule_span_seconds,solve_time,lots,jobs,dataset,objective_type,start_date
-best_greedy,4524740.0,452474.0,3466480.0,2040.0,1800.0,9,3840.0,1054420.0,1058260.0,155616.0,1058260.0,0.0,4,40.0,465840.0,437040.0,0.08215390000259504,10,13,small,tardy_total_time,01/01/2026
+best_greedy,3466480.0,346648.0,3466480.0,2040.0,3600.0,9,5640.0,1054420.0,1060060.0,156322.0,0.0,0.0,4,40.0,465840.0,437040.0,0.42596529982984066,10,13,small,tardy_only,01/01/2026
